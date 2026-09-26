@@ -1,0 +1,111 @@
+{
+  "schemaVersion": 1,
+  "platform": "windows-x64",
+  "packages": [
+    {
+      "id": "waifu2x",
+      "repository": "nihui/waifu2x-ncnn-vulkan",
+      "version": "20250915",
+      "url": "https://github.com/nihui/waifu2x-ncnn-vulkan/releases/download/20250915/waifu2x-ncnn-vulkan-20250915-windows.zip",
+      "sha256": "7425be94b94e4c8f37a1e433ac0e0100c43790e2c37418f4b65d8235adfbdc87",
+      "archiveRoot": "waifu2x-ncnn-vulkan-20250915-windows",
+      "executable": "waifu2x-ncnn-vulkan.exe",
+      "modelDirectories": ["models-cunet", "models-upconv_7_anime_style_art_rgb", "models-upconv_7_photo"],
+      "requiredFiles": ["LICENSE"]
+    },
+    {
+      "id": "realcugan",
+      "repository": "nihui/realcugan-ncnn-vulkan",
+      "version": "20220728",
+      "url": "https://github.com/nihui/realcugan-ncnn-vulkan/releases/download/20220728/realcugan-ncnn-vulkan-20220728-windows.zip",
+      "sha256": "c6e08d46c11704b1e3a1ada9ddd591cb5005f52f132136c8633ba25def400e01",
+      "archiveRoot": "realcugan-ncnn-vulkan-20220728-windows",
+      "executable": "realcugan-ncnn-vulkan.exe",
+      "modelDirectories": ["models-se", "models-pro", "models-nose"],
+      "requiredFiles": ["LICENSE", "models-se/up2x-no-denoise.bin", "models-pro/up3x-denoise3x.bin", "models-nose/up2x-no-denoise.bin"]
+    },
+    {
+      "id": "realesrgan",
+      "repository": "xinntao/Real-ESRGAN",
+      "version": "v0.2.5.0 (ncnn 20220424)",
+      "url": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-windows.zip",
+      "sha256": "abc02804e17982a3be33675e4d471e91ea374e65b70167abc09e31acb412802d",
+      "archiveRoot": ".",
+      "executable": "realesrgan-ncnn-vulkan.exe",
+      "modelDirectories": ["models"],
+      "requiredFiles": ["models/realesr-animevideov3-x2.bin", "models/realesr-animevideov3-x3.bin", "models/realesr-animevideov3-x4.bin", "models/realesrgan-x4plus-anime.bin", "models/realesrgan-x4plus.bin"]
+    }
+  ],
+  "notices": [
+    {
+      "file": "stb_image.h",
+      "url": "https://raw.githubusercontent.com/nihui/realcugan-ncnn-vulkan/395302c5c70f1bff604c974e92e0a87e45c9f9ee/src/stb_image.h",
+      "sha256": "8e5b0d717dfc8a834c97ef202d20e78d083d009586e1731c985817d0155d568c"
+    },
+    {
+      "file": "win32dirent.h",
+      "url": "https://raw.githubusercontent.com/nihui/waifu2x-ncnn-vulkan/a86cfb043e6482b5f08778a114df9b5faf6e73b7/src/win32dirent.h",
+      "sha256": "70676c386529e7d6e8551d045eaff46cc2a97c8d98fea05128cf36f0a856f133"
+    },
+    {
+      "file": "libjpeg-turbo-LICENSE.md",
+      "url": "https://raw.githubusercontent.com/libjpeg-turbo/libjpeg-turbo/4e151a4ad91001b3aa8c2ece2205c15f487ce320/LICENSE.md",
+      "sha256": "2189dc45a8fe96204069f8124caa53a148dfdc193f50f584c6ca7849a6072872"
+    },
+    {
+      "file": "libjpeg-turbo-README.ijg",
+      "url": "https://raw.githubusercontent.com/libjpeg-turbo/libjpeg-turbo/4e151a4ad91001b3aa8c2ece2205c15f487ce320/README.ijg",
+      "sha256": "75815e3bf6484201a3c3d17a1bbf10f2e8e3237f84df10a2357ea896db2a81d6"
+    },
+    {
+      "file": "libpng.txt",
+      "url": "https://raw.githubusercontent.com/pnggroup/libpng/2b978915d82377df13fcbb1fb56660195ded868a/LICENSE",
+      "sha256": "16d9daaafbf63a31a5bdc91d4600972548fef5aaa1244202393288dbd079c49a"
+    },
+    {
+      "file": "libwebp.txt",
+      "url": "https://raw.githubusercontent.com/webmproject/libwebp/4fa21912338357f89e4fd51cf2368325b59e9bd9/COPYING",
+      "sha256": "5aec868f669e384a22372a4e8a1a6cd7d44c64cd451f960ca69cc170d1e13acf"
+    },
+    {
+      "file": "libwebp-PATENTS.txt",
+      "url": "https://raw.githubusercontent.com/webmproject/libwebp/4fa21912338357f89e4fd51cf2368325b59e9bd9/PATENTS",
+      "sha256": "cc3273e0694ea5896145e0677699b53471b03ea43021ddc50e7923fbb9f5023c"
+    },
+    {
+      "file": "ncnn-waifu2x.txt",
+      "url": "https://raw.githubusercontent.com/Tencent/ncnn/c4193aadbbb56582aa87b1850dd3d98fb8fd936d/LICENSE.txt",
+      "sha256": "7c974bac98848df46be1af5bdaa3c3c9c01f6082a90f55caeb7f60c6208aa255"
+    },
+    {
+      "file": "zlib-ng.txt",
+      "url": "https://raw.githubusercontent.com/zlib-ng/zlib-ng/425439062b114a0f6cf625022c41d929c7e879f9/LICENSE.md",
+      "sha256": "6c9f0d975b41afaa34d22f55bb8986ce69e5cb7ad327cb2b28820cd425edf5ee"
+    },
+    {
+      "file": "Real-CUGAN-MIT.txt",
+      "url": "https://raw.githubusercontent.com/bilibili/ailab/2799af78ef105b414cc4b796c67c8511acdcdf6f/Real-CUGAN/LICENSE",
+      "sha256": "8cad8cfdf94baaf23519061af913770e52476ddec2a311e9510582e7bed13cba"
+    },
+    {
+      "file": "waifu2x-MIT.txt",
+      "url": "https://raw.githubusercontent.com/nagadomi/waifu2x/cc385f97a9debfe611316aabfd5d8bb30ba2dbeb/LICENSE",
+      "sha256": "6beebd9ebb8077acbefd4b8c9b50fa02a647c301c3293589f3640d7d17f2a7f0"
+    },
+    {
+      "file": "ncnn.txt",
+      "url": "https://raw.githubusercontent.com/Tencent/ncnn/b4ba207c18d3103d6df890c0e3a97b469b196b26/LICENSE.txt",
+      "sha256": "6495f972a09ad7f64ccd953e79adba91a93d862edc7135e6d95210bbf4002a01"
+    },
+    {
+      "file": "Real-ESRGAN-ncnn-vulkan-MIT.txt",
+      "url": "https://raw.githubusercontent.com/xinntao/Real-ESRGAN-ncnn-vulkan/37026f49824c5cf84062e7c6a5dd71445dcf610f/LICENSE",
+      "sha256": "5abb941454de437b0e90d78dcb72e3688f74e14bcd4e24393273cb5cd0e9c937"
+    },
+    {
+      "file": "Real-ESRGAN-BSD-3-Clause.txt",
+      "url": "https://raw.githubusercontent.com/xinntao/Real-ESRGAN/685d429c81888252bdb10f56c7754baededc3823/LICENSE",
+      "sha256": "4a699ec4863d96a91fc265948a0c90033f7e8735d515524dcf3444736406e0c2"
+    }
+  ]
+}

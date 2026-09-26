@@ -1,0 +1,158 @@
+/* ═══════════════════════════════════════════ */
+/*              UI Showcase - Base             */
+/* ═══════════════════════════════════════════ */
+
+html,
+body {
+    height: 100%;
+}
+
+body {
+    background-color: #0a0a0f;
+    color: #ffffff;
+    font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+    margin: 0;
+    overflow: hidden;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+/* ── Section container ── */
+.section-container {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 40px 32px;
+}
+
+/* ── Demo box ── */
+.demo-box {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 0.75rem;
+    padding: 24px;
+}
+
+.demo-box h4 {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-slate-500, #475569);
+    margin: 0 0 16px 0;
+}
+
+/* ── Modal overlay & popup ── */
+.overlay {
+    position: fixed;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.popup {
+    background-color: var(--color-neutral-900, #13131a);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.75rem;
+    padding: 24px;
+    min-width: 400px;
+    max-width: 500px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.popup h2 {
+    margin: 0 0 8px 0;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--color-white, #e2e8f0);
+}
+
+.popup input {
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.5rem;
+    padding: 10px 12px;
+    color: var(--color-white, #e2e8f0);
+    font-size: 0.875rem;
+    font-family: inherit;
+    transition: border-color 150ms;
+}
+
+.popup input:focus {
+    outline: none;
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.popup input::placeholder {
+    color: var(--color-slate-500, #475569);
+}
+
+.popup .actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    margin-top: 8px;
+}
+
+.popup .actions button {
+    padding: 8px 16px;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    font-family: inherit;
+    transition: all 150ms;
+}
+
+/* ── Select override ── */
+select,
+select option,
+select optgroup {
+    background-color: #0a0a0f !important;
+    background: #0a0a0f !important;
+    color: #e2e8f0 !important;
+}
+
+select {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    background-color: #0a0a0f !important;
+    background: #0a0a0f !important;
+    color: #e2e8f0 !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    padding: 10px 40px 10px 12px !important;
+    border-radius: 0.5rem !important;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 0.875rem;
+    transition: border-color 150ms, box-shadow 150ms;
+}
+
+select:focus {
+    outline: none !important;
+    border-color: rgba(99, 102, 241, 0.5) !important;
+    box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.2) !important;
+}

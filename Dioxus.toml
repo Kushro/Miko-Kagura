@@ -1,0 +1,34 @@
+[application]
+name = "miko-kagura"
+default_platform = "desktop"
+
+[application.assets]
+base_path = "assets"
+
+[bundle]
+identifier = "com.kushro.miko-kagura"
+publisher = "Octavio"
+icon = []
+category = "public.app-category.utilities"
+short_description = "Remote image upscaling for Miko"
+copyright = "Copyright (c) 2026 Octavio"
+
+[bundle.windows]
+webview_install_mode = { EmbedBootstrapper = { silent = true } }
+
+[bundle.windows.nsis]
+template = "packaging/windows.nsi"
+install_mode = "CurrentUser"
+languages = ["English", "Spanish"]
+display_language_selector = true
+license = "LICENSE"
+
+[web.app]
+title = "Miko-Kagura"
+
+[web.resource]
+style = []
+script = []
+
+[web.resource.dev]
+script = []

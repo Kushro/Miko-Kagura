@@ -1,0 +1,103 @@
+name: Release Windows packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version to validate, e.g. v0.1.0 (build only; does not publish)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.release.id || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'v')
+    runs-on: windows-2022
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      CARGO_BUILD_JOBS: '2'
+      CARGO_TERM_COLOR: always
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Reject immutable releases before building
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_ID: ${{ github.event.release.id }}
+        run: |
+          $release = gh api "repos/$env:GH_REPO/releases/$env:RELEASE_ID" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Could not read release.' }
+          if ($release.immutable) { throw 'Published immutable releases cannot accept new assets.' }
+      - name: Set up Rust
+        run: |
+          rustup show
+          if ($LASTEXITCODE -ne 0) { throw 'Could not install pinned Rust toolchain.' }
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - name: Validate version and documentation
+        run: |
+          . ./scripts/release-common.ps1
+          Get-ReleaseVersion $env:RELEASE_TAG
+          bun run docs:check
+          Assert-NativeSuccess 'Documentation checks'
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: windows-x64-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'packaging/upscalers.lock.json') }}-${{ github.sha }}
+          restore-keys: |
+            windows-x64-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'packaging/upscalers.lock.json') }}-
+      - name: Install Dioxus CLI 0.7.9
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tools = Join-Path $env:RUNNER_TEMP 'dioxus-cli'
+          New-Item -ItemType Directory -Force $tools | Out-Null
+          gh release download v0.7.9 --repo DioxusLabs/dioxus --pattern dx-x86_64-pc-windows-msvc.zip --pattern dx-x86_64-pc-windows-msvc.sha256 --dir $tools
+          if ($LASTEXITCODE -ne 0) { throw 'Dioxus download failed.' }
+          $zip = Join-Path $tools 'dx-x86_64-pc-windows-msvc.zip'
+          $expected = ((Get-Content "$tools/dx-x86_64-pc-windows-msvc.sha256" -Raw).Trim() -split '\s+')[0]
+          if ((Get-FileHash $zip).Hash -ine $expected) { throw 'Dioxus checksum mismatch.' }
+          Expand-Archive $zip "$tools/bin"
+          $dx = @(Get-ChildItem "$tools/bin" -Recurse -Filter dx.exe)
+          if ($dx.Count -ne 1) { throw 'Unexpected Dioxus archive layout.' }
+          $dx[0].DirectoryName >> $env:GITHUB_PATH
+      - name: Build Lite and Full packages
+        run: ./scripts/build-release.ps1 -Tag $env:RELEASE_TAG
+      - name: Test installation and variant upgrades
+        run: ./scripts/test-installers.ps1 -Tag $env:RELEASE_TAG
+      - name: Retain packages for inspection and upload retries
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-x64-${{ env.RELEASE_TAG }}
+          path: dist/${{ env.RELEASE_TAG }}/*
+          if-no-files-found: error
+          retention-days: 14
+      - name: Attach files to the triggering release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_ID: ${{ github.event.release.id }}
+        run: ./scripts/publish-release.ps1 -Tag $env:RELEASE_TAG -ReleaseId $env:RELEASE_ID

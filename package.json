@@ -1,0 +1,14 @@
+{
+  "name": "miko-kagura",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "docs:check": "bun scripts/check-docs.mjs",
+    "tailwind": "bunx @tailwindcss/cli -i tailwind.css -o assets/tailwind.css --watch",
+    "tailwind:build": "bunx @tailwindcss/cli -i tailwind.css -o assets/tailwind.css"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.0",
+    "tailwindcss": "^4.1.0"
+  }
+}
