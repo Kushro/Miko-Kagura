@@ -65,11 +65,12 @@ gh release create v0.1.0 --repo Kushro/Miko-Kagura --verify-tag --title "Miko-Ka
 ```
 
 `release: published` cubre releases estables y prereleases. Un borrador o un push
-de tag por sí solos no activan el empaquetado. El job omite releases sin prefijo
+de tag por sí solos no activan el empaquetado. El workflow omite releases sin prefijo
 `v`, obtiene el commit del evento y valida la versión antes de compilar.
-La release comienza sin descargas compiladas; aparecen cuando termina el job.
+Las pruebas y el empaquetado corren en jobs paralelos; un job final de publicación
+sube los archivos solo si ambos terminan bien. La release comienza sin descargas compiladas.
 
-El `GITHUB_TOKEN` automático aporta `contents: write`; no hace falta un token
+El `GITHUB_TOKEN` automático aporta `contents: write` solo al job de publicación; no hace falta un token
 personal para subir archivos. Crear la release desde otro workflow con
 `GITHUB_TOKEN` normalmente no activa este flujo; usa un token de GitHub App
 apropiado o ejecuta los pasos de empaquetado desde ese mismo workflow.

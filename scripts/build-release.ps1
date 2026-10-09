@@ -19,7 +19,7 @@ try {
     bun run tailwind:build
     Assert-NativeSuccess 'Tailwind build'
     if (!$SkipTests) {
-        cargo test --locked -j 2
+        cargo test --locked
         Assert-NativeSuccess 'cargo test'
     }
     dx build --platform desktop --release --locked

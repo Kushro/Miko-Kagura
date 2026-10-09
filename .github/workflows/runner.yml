@@ -1,0 +1,53 @@
+name: Select runner
+# Reusable: picks Avrea or GitHub-hosted runner labels for the calling workflow.
+# Repository variable RUNNER_PROVIDER: "avrea" or "github" forces a provider;
+# unset or "auto" uses Avrea unless its status page reports a major outage or is
+# unreachable, or the pull request comes from another repository.
+on:
+  workflow_call:
+    outputs:
+      provider:
+        value: ${{ jobs.select.outputs.provider }}
+      linux:
+        value: ${{ jobs.select.outputs.linux }}
+      windows:
+        value: ${{ jobs.select.outputs.windows }}
+permissions:
+  contents: read
+jobs:
+  select:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    outputs:
+      provider: ${{ steps.pick.outputs.provider }}
+      linux: ${{ steps.pick.outputs.linux }}
+      windows: ${{ steps.pick.outputs.windows }}
+    steps:
+      - id: pick
+        env:
+          MODE: ${{ vars.RUNNER_PROVIDER || 'auto' }}
+          EXTERNAL_PR: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          provider=avrea
+          if [[ $MODE == github || $EXTERNAL_PR == true ]]; then
+            provider=github
+          elif [[ $MODE != avrea ]]; then
+            indicator=$(curl -fsS --max-time 10 https://status.avrea.com/api/v2/status.json \
+              | grep -o '"indicator":"[a-z_]*"' | cut -d'"' -f4 || true)
+            case ${indicator:-unreachable} in
+              none|minor) ;;
+              *) provider=github
+                 echo "::warning::Avrea status '${indicator:-unreachable}': using GitHub-hosted runners" ;;
+            esac
+          fi
+          if [[ $provider == avrea ]]; then
+            linux=avrea-ubuntu-24.04-4-vcpu windows=avrea-windows-2025-4-vcpu
+          else
+            linux=ubuntu-24.04 windows=windows-2025
+          fi
+          {
+            echo "provider=$provider"
+            echo "linux=$linux"
+            echo "windows=$windows"
+          } >> "$GITHUB_OUTPUT"
+          echo "Runner provider: **$provider** (mode: $MODE)" >> "$GITHUB_STEP_SUMMARY"

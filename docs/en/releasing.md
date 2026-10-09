@@ -64,11 +64,12 @@ gh release create v0.1.0 --repo Kushro/Miko-Kagura --verify-tag --title "Miko-Ka
 ```
 
 `release: published` covers stable releases and prereleases. A draft or tag push
-alone does not start packaging. The job skips releases without a `v` prefix,
+alone does not start packaging. The workflow skips releases without a `v` prefix,
 checks out the triggering commit, and validates the version before building.
-The release initially has no compiled downloads; they appear after the job succeeds.
+Tests and packaging run as parallel jobs; a final publish job uploads the files
+only after both succeed. The release initially has no compiled downloads.
 
-GitHub's automatic `GITHUB_TOKEN` supplies `contents: write`; no personal token
+GitHub's automatic `GITHUB_TOKEN` gives only the publish job `contents: write`; no personal token
 is needed for uploading. Creating a release from a different workflow using
 `GITHUB_TOKEN` does not normally trigger this workflow; use an appropriate GitHub
 App token or invoke the packaging steps in that workflow instead.
