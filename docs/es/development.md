@@ -40,7 +40,7 @@ Conserva juntos el ejecutable y los assets. Dioxus recopila los recursos
 ## Ejecutar comprobaciones
 
 ```powershell
-cargo test --locked -j 2
+cargo test --locked
 bun run docs:check
 ```
 

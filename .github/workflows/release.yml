@@ -18,15 +18,48 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  windows:
+  runner:
+    # Every other job needs this one, so skipping it skips the whole release.
     if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'v')
-    runs-on: windows-2022
+    uses: ./.github/workflows/runner.yml
+
+  test:
+    needs: runner
+    runs-on: ${{ needs.runner.outputs.windows }}
+    timeout-minutes: 45
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_TERM_COLOR: always
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Rust
+        run: |
+          rustup show
+          if ($LASTEXITCODE -ne 0) { throw 'Could not install pinned Rust toolchain.' }
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: windows-test
+          save-if: false
+      # Tests do not need optimized dependencies; release packaging keeps its own profile.
+      - name: Run tests
+        run: |
+          cargo test --locked --config "profile.dev.package.'*'.opt-level=0"
+          if ($LASTEXITCODE -ne 0) { throw 'cargo test failed.' }
+
+  windows:
+    needs: runner
+    runs-on: ${{ needs.runner.outputs.windows }}
     timeout-minutes: 90
-    permissions:
-      contents: write
     env:
       RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
-      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
       CARGO_TERM_COLOR: always
     defaults:
       run:
@@ -59,15 +92,11 @@ jobs:
           Get-ReleaseVersion $env:RELEASE_TAG
           bun run docs:check
           Assert-NativeSuccess 'Documentation checks'
-      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      # Restores the cache that ci.yml (warm-release) saves from main; never saves here.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: windows-x64-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'packaging/upscalers.lock.json') }}-${{ github.sha }}
-          restore-keys: |
-            windows-x64-rust-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock', 'packaging/upscalers.lock.json') }}-
+          shared-key: windows-release
+          save-if: false
       - name: Install Dioxus CLI 0.7.9
         env:
           GH_TOKEN: ${{ github.token }}
@@ -84,7 +113,8 @@ jobs:
           if ($dx.Count -ne 1) { throw 'Unexpected Dioxus archive layout.' }
           $dx[0].DirectoryName >> $env:GITHUB_PATH
       - name: Build Lite and Full packages
-        run: ./scripts/build-release.ps1 -Tag $env:RELEASE_TAG
+        # Tests run in the parallel test job; publish requires both jobs.
+        run: ./scripts/build-release.ps1 -Tag $env:RELEASE_TAG -SkipTests
       - name: Test installation and variant upgrades
         run: ./scripts/test-installers.ps1 -Tag $env:RELEASE_TAG
       - name: Retain packages for inspection and upload retries
@@ -94,8 +124,35 @@ jobs:
           path: dist/${{ env.RELEASE_TAG }}/*
           if-no-files-found: error
           retention-days: 14
+
+  publish:
+    if: github.event_name == 'release'
+    needs: [runner, test, windows]
+    runs-on: ${{ needs.runner.outputs.windows }}
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      # publish-release.ps1 validates the tag with cargo metadata.
+      - name: Set up Rust
+        run: |
+          rustup show
+          if ($LASTEXITCODE -ne 0) { throw 'Could not install pinned Rust toolchain.' }
+      - name: Download packages
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: windows-x64-${{ env.RELEASE_TAG }}
+          path: dist/${{ env.RELEASE_TAG }}
       - name: Attach files to the triggering release
-        if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

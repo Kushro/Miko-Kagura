@@ -40,7 +40,7 @@ plain `cargo run` does not produce the equivalent runnable layout.
 ## Run checks
 
 ```powershell
-cargo test --locked -j 2
+cargo test --locked
 bun run docs:check
 ```
 
