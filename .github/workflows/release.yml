@@ -69,16 +69,6 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Reject immutable releases before building
-        if: github.event_name == 'release'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_ID: ${{ github.event.release.id }}
-        run: |
-          $release = gh api "repos/$env:GH_REPO/releases/$env:RELEASE_ID" | ConvertFrom-Json
-          if ($LASTEXITCODE -ne 0) { throw 'Could not read release.' }
-          if ($release.immutable) { throw 'Published immutable releases cannot accept new assets.' }
       - name: Set up Rust
         run: |
           rustup show
@@ -97,14 +87,15 @@ jobs:
         with:
           shared-key: windows-release
           save-if: false
+      # gh cannot verify api.github.com on Avrea's Windows image (x509: unknown
+      # authority); the release files are public, so fetch them over HTTPS directly.
       - name: Install Dioxus CLI 0.7.9
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           $tools = Join-Path $env:RUNNER_TEMP 'dioxus-cli'
           New-Item -ItemType Directory -Force $tools | Out-Null
-          gh release download v0.7.9 --repo DioxusLabs/dioxus --pattern dx-x86_64-pc-windows-msvc.zip --pattern dx-x86_64-pc-windows-msvc.sha256 --dir $tools
-          if ($LASTEXITCODE -ne 0) { throw 'Dioxus download failed.' }
+          foreach ($name in @('dx-x86_64-pc-windows-msvc.zip', 'dx-x86_64-pc-windows-msvc.sha256')) {
+              Invoke-WebRequest "https://github.com/DioxusLabs/dioxus/releases/download/v0.7.9/$name" -OutFile (Join-Path $tools $name) -MaximumRetryCount 3 -RetryIntervalSec 5
+          }
           $zip = Join-Path $tools 'dx-x86_64-pc-windows-msvc.zip'
           $expected = ((Get-Content "$tools/dx-x86_64-pc-windows-msvc.sha256" -Raw).Trim() -split '\s+')[0]
           if ((Get-FileHash $zip).Hash -ine $expected) { throw 'Dioxus checksum mismatch.' }
@@ -140,6 +131,19 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+      # Runs here because gh cannot reach the API from Avrea's Windows image.
+      - name: Reject immutable releases before building
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_ID: ${{ github.event.release.id }}
+        run: |
+          immutable=$(gh api "repos/$GH_REPO/releases/$RELEASE_ID" --jq .immutable)
+          [ "$immutable" != true ] || { echo 'Published immutable releases cannot accept new assets.'; exit 1; }
+      # The publish job runs publish-release.ps1 on this runner type.
+      - name: Check PowerShell for the publish job
+        run: pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
@@ -196,7 +200,8 @@ jobs:
   publish:
     if: github.event_name == 'release'
     needs: [runner, test, windows, linux]
-    runs-on: ${{ needs.runner.outputs.windows }}
+    # Linux: gh cannot verify api.github.com on Avrea's Windows image.
+    runs-on: ${{ needs.runner.outputs.linux }}
     timeout-minutes: 20
     permissions:
       contents: write
