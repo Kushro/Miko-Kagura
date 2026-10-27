@@ -1,4 +1,4 @@
-name: Release Windows packages
+name: Release packages
 
 on:
   release:
@@ -125,9 +125,77 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  linux:
+    needs: runner
+    # Avrea Ubuntu 24.04: packages inherit its glibc 2.39 floor, so do not swap
+    # this for a newer image without updating the documented requirements.
+    runs-on: ${{ needs.runner.outputs.linux }}
+    timeout-minutes: 90
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      CARGO_INCREMENTAL: '0'
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl file jq unzip dpkg-dev patchelf libvulkan1 \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+      - name: Set up Rust
+        run: rustup show
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      # Restores the cache that ci.yml (warm-release-linux) saves from main; never saves here.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: linux-release
+          save-if: false
+      - name: Install Dioxus CLI 0.7.9
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tools="$RUNNER_TEMP/dioxus-cli"
+          mkdir -p "$tools/bin"
+          gh release download v0.7.9 --repo DioxusLabs/dioxus --pattern dx-x86_64-unknown-linux-gnu.zip --pattern dx-x86_64-unknown-linux-gnu.sha256 --dir "$tools"
+          # The .sha256 lists both the .tar.gz and the .zip; only the zip was downloaded.
+          (cd "$tools" && sha256sum -c --ignore-missing --strict dx-x86_64-unknown-linux-gnu.sha256)
+          unzip -q "$tools/dx-x86_64-unknown-linux-gnu.zip" -d "$tools/bin"
+          dx=$(find "$tools/bin" -type f -name dx)
+          [ "$(wc -l <<<"$dx")" = 1 ] || { echo 'Unexpected Dioxus archive layout.'; exit 1; }
+          chmod +x "$dx"
+          dirname "$dx" >> "$GITHUB_PATH"
+      - name: Build tarballs, AppImage and deb
+        # Tests run in the parallel test job; publish requires every job.
+        run: bash scripts/build-release-linux.sh "$RELEASE_TAG" --skip-tests
+      - name: Test packages on Ubuntu and Arch
+        run: bash scripts/test-linux-packages.sh "$RELEASE_TAG" "$RUNNER_TEMP/aur"
+      - name: Retain packages for inspection and upload retries
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: linux-x64-${{ env.RELEASE_TAG }}
+          path: dist/${{ env.RELEASE_TAG }}-linux/*
+          if-no-files-found: error
+          retention-days: 14
+      # Not a release asset: copy these to the AUR repository (see docs/en/releasing.md).
+      - name: Retain the tested AUR PKGBUILD
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: aur-miko-kagura-bin-${{ env.RELEASE_TAG }}
+          path: ${{ runner.temp }}/aur/*
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
+
   publish:
     if: github.event_name == 'release'
-    needs: [runner, test, windows]
+    needs: [runner, test, windows, linux]
     runs-on: ${{ needs.runner.outputs.windows }}
     timeout-minutes: 20
     permissions:
@@ -152,6 +220,11 @@ jobs:
         with:
           name: windows-x64-${{ env.RELEASE_TAG }}
           path: dist/${{ env.RELEASE_TAG }}
+      - name: Download Linux packages
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: linux-x64-${{ env.RELEASE_TAG }}
+          path: dist/${{ env.RELEASE_TAG }}-linux
       - name: Attach files to the triggering release
         env:
           GH_TOKEN: ${{ github.token }}

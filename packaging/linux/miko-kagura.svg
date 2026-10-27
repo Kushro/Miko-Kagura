@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!-- Placeholder app icon for Linux desktop entries: a torii gate over a 2x sparkle. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a1420"/>
+      <stop offset="1" stop-color="#120a10"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#bg)"/>
+  <g fill="#e2463f">
+    <path d="M40 66 Q128 50 216 66 L212 86 Q128 72 44 86 Z"/>
+    <rect x="60" y="100" width="136" height="14" rx="3"/>
+    <rect x="74" y="80" width="18" height="128" rx="4"/>
+    <rect x="164" y="80" width="18" height="128" rx="4"/>
+  </g>
+  <path fill="#f6d9a8" d="M128 132 L136 158 L162 166 L136 174 L128 200 L120 174 L94 166 L120 158 Z"/>
+</svg>

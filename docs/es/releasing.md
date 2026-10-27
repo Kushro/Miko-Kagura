@@ -2,8 +2,10 @@
 
 [English](../en/releasing.md) | **Español** | [Inicio](../../README.es.md)
 
-El workflow genera Portable Lite/Full y Setup Lite/Full para Windows x64,
-y los adjunta junto con `SHA256SUMS.txt` a la release que lo activó.
+El workflow genera Portable Lite/Full y Setup Lite/Full para Windows x64, además
+de tarballs Portable Lite/Full, un AppImage Full y un .deb Full para Linux x64, y
+los adjunta junto con un único `SHA256SUMS.txt` a la release que lo activó.
+Todos los jobs usan los runners que elige `runner.yml` (Avrea por defecto).
 
 ## Preparar una versión
 
@@ -81,17 +83,49 @@ compilar, subir a un borrador y después publicar. Consulta
 [eventos de release de GitHub](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release)
 y [releases inmutables](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases).
 
+## Paquetes Linux y el AUR
+
+El job `linux` usa el runner Ubuntu 24.04 de Avrea, así que los paquetes requieren
+glibc 2.39 o posterior. Para reproducirlo en Ubuntu 24.04 con las dependencias
+del workflow, Dioxus CLI 0.7.9 y bun:
+
+```bash
+bash scripts/build-release-linux.sh v0.1.0
+bash scripts/test-linux-packages.sh v0.1.0
+```
+
+Los paquetes quedan en `dist/v0.1.0-linux`. El build descarga los motores fijados
+en `packaging/upscalers-linux-x64.lock.json` y versiones fijadas de `appimagetool`
+y del runtime de AppImage. El .deb obtiene su `Depends` de `dpkg-shlibdeps`. El
+script de pruebas necesita Docker (también funciona `DOCKER=podman`). Instala el
+.deb y ejecuta el AppImage en Ubuntu 24.04, compila e instala el paquete del AUR
+en Arch, comprueba las bibliotecas y espera a que `/health` detecte los motores.
+
+El workflow conserva el `PKGBUILD` y el `.SRCINFO` probados como artefacto
+`aur-miko-kagura-bin-<tag>`. No son archivos de la release. Tras publicarla,
+copia ambos archivos a tu clon de `ssh://aur@aur.archlinux.org/miko-kagura-bin.git`,
+haz commit y push. Para regenerarlos en Arch desde un checkout de la tag:
+
+```bash
+scripts/update-aur.sh v0.1.0 SHA256SUMS.txt aur-out
+cd aur-out && makepkg --printsrcinfo > .SRCINFO
+```
+
+Publica en el AUR solo versiones estables. Si publicas una prerelease,
+`0.2.0-beta.1` pasa a `pkgver=0.2.0beta.1`, que pacman ordena antes de `0.2.0`.
+
 ## Pruebas manuales y reintentos de subida
 
-Usa **Actions → Release Windows packages → Run workflow** e indica una tag de
+Usa **Actions → Release packages → Run workflow** e indica una tag de
 versión para compilar sin publicar. Se compila la referencia seleccionada del
 workflow, no una tag elegida por ese campo de texto. La versión debe coincidir
-con sus manifiestos. Los cinco archivos se conservan como artefacto de Actions
-durante 14 días.
+con sus manifiestos. Los paquetes y el `SHA256SUMS.txt` de cada plataforma se
+conservan como artefacto de Actions durante 14 días.
 
 La subida omite archivos existentes idénticos y falla ante nombres en conflicto.
 Nunca reemplaza descargas silenciosamente. Si una subida falla parcialmente,
-descarga el artefacto original de Actions en `dist/<tag>` y reintenta con esos archivos:
+descarga los artefactos originales de Actions en `dist/<tag>` (Windows) y
+`dist/<tag>-linux` (Linux) y reintenta con esos archivos:
 
 ```powershell
 $env:GH_REPO = 'Kushro/Miko-Kagura'

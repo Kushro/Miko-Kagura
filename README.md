@@ -9,7 +9,7 @@ to choose models, adjust image processing, and inspect requests from the reader.
 ## Choose a download
 
 Open [Releases](https://github.com/Kushro/Miko-Kagura/releases) and choose a
-**Windows x64** package. Each packaged release provides these four variants:
+**Windows x64** or **Linux x64** package. Windows releases provide these four variants:
 
 | Filename suffix | Includes engines and models | Best for |
 | --- | --- | --- |
@@ -18,13 +18,18 @@ Open [Releases](https://github.com/Kushro/Miko-Kagura/releases) and choose a
 | `setup-lite.exe` | No | Installing or updating with existing engines |
 | `portable-lite.zip` | No | Using your own engines without installation |
 
+On Linux, Arch and CachyOS users install `miko-kagura-bin` from the AUR; every
+release also provides a `.deb`, an `.AppImage` and Lite/Full `.tar.gz` packages.
+See [Install on Linux](docs/en/installation.md#install-on-linux).
+
 Full includes Waifu2x, Real-CUGAN and Real-ESRGAN engines and models downloaded
 from their official sources. Lite includes the same application and features.
 GitHub's **Source code** archives contain source code, not a runnable package.
 
 ## Requirements
 
-- Windows x64 and a GPU with an up-to-date Vulkan-capable driver.
+- Windows x64, or Linux x64 with glibc 2.39+ and WebKitGTK 4.1, and a GPU with
+  an up-to-date Vulkan-capable driver.
 - Microsoft Edge WebView2 Runtime. The installer installs it if missing;
   that step requires Internet access. Portable users install it separately.
 - Miko and the computer reachable on the same trusted network.

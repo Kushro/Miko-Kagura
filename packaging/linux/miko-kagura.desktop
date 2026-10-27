@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Miko-Kagura
+GenericName=Image Upscaling Server
+GenericName[es]=Servidor de escalado de imágenes
+Comment=Remote image upscaling for Miko
+Comment[es]=Escalado remoto de imágenes para Miko
+Exec=miko-kagura
+Icon=miko-kagura
+Terminal=false
+Categories=Graphics;
+Keywords=upscale;waifu2x;realcugan;realesrgan;miko;

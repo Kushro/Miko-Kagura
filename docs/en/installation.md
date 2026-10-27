@@ -2,9 +2,10 @@
 
 **English** | [Español](../es/installation.md) | [Home](../../README.md)
 
-Install the Windows x64 application and connect Miko to its upscaling server.
-For a first installation, choose **Setup Full** on the
-[releases page](https://github.com/Kushro/Miko-Kagura/releases).
+Install the Windows x64 or Linux x64 application and connect Miko to its
+upscaling server. For a first installation on Windows, choose **Setup Full** on the
+[releases page](https://github.com/Kushro/Miko-Kagura/releases). On Linux, see
+[Install on Linux](#install-on-linux).
 
 ## Before you start
 
@@ -56,6 +57,36 @@ binaries/
 Keep each package's licenses. Select the parent `binaries/` directory in the
 dashboard. Its executables and model directories must remain together.
 
+## Install on Linux
+
+Linux x64 packages need glibc 2.39 or newer (Arch, CachyOS, Ubuntu 24.04,
+Debian 13, Fedora 40 or later), WebKitGTK 4.1 and a Vulkan driver. Every
+system package below is Full; use the Lite tarball to bring your own engines.
+
+| Package | Best for | Install |
+| --- | --- | --- |
+| AUR `miko-kagura-bin` | Arch, CachyOS, Manjaro | `paru -S miko-kagura-bin` (or `yay`) |
+| `linux-x64-full.deb` | Ubuntu, Debian, Mint | `sudo apt install ./Miko-Kagura-v<VERSION>-linux-x64-full.deb` |
+| `linux-x64-full.AppImage` | Any distribution | `chmod +x` the file, then run it |
+| `linux-x64-portable-{full,lite}.tar.gz` | Running without installation | Extract, then run `Miko-Kagura/miko-kagura` |
+
+The AUR and .deb packages install to `/opt/miko-kagura`, add `miko-kagura` to
+the `PATH` and add a menu entry. The AppImage uses the system WebKitGTK; install
+`webkit2gtk-4.1` (Arch) or `libwebkit2gtk-4.1-0` (Debian/Ubuntu) if it does not
+start. Install your GPU's Vulkan driver, for example `vulkan-radeon`,
+`nvidia-utils` or `vulkan-intel` on Arch.
+
+Preferences are stored in `~/.config/miko-kagura`. With Lite, or to replace the
+bundled engines, place the `binaries/` layout from
+[Configure Lite engines](#configure-lite-engines) in
+`~/.local/share/miko-kagura/binaries`, which is detected automatically, or
+choose any folder in **Binary Directory**. Use the Linux engine downloads, whose
+executables have no `.exe` extension.
+
+If the window stays blank on NVIDIA or Wayland, start the tarball with
+`WEBKIT_DISABLE_DMABUF_RENDERER=1 ./miko-kagura`. The AUR, .deb and AppImage
+launchers already set it; export `WEBKIT_DISABLE_DMABUF_RENDERER=0` to opt out.
+
 ## Connect Miko
 
 1. Find the computer's local IPv4 address with `ipconfig` in PowerShell.
@@ -92,6 +123,7 @@ Download `SHA256SUMS.txt` from the same release. Compare the checksum with:
 Get-FileHash .\Miko-Kagura-v0.1.0-windows-x64-setup-full.exe -Algorithm SHA256
 ```
 
+On Linux, run `sha256sum -c --ignore-missing SHA256SUMS.txt` in the download folder.
 Use your downloaded filename. The hash must match its entry in `SHA256SUMS.txt`.
 Packages are currently unsigned.
 
@@ -101,3 +133,6 @@ Use Windows **Installed apps** or run `uninstall.exe` in the application folder.
 The uninstaller removes recorded application and engine files. User-added files,
 external engine directories, and `%APPDATA%\Miko-Kagura` preferences remain.
 For a portable package, close the application and delete its extracted folder.
+On Linux, remove the package with `sudo pacman -R miko-kagura-bin` or
+`sudo apt remove miko-kagura`, or delete the AppImage. `~/.config/miko-kagura`
+and `~/.local/share/miko-kagura` remain.

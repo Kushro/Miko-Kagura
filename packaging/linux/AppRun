@@ -1,0 +1,8 @@
+#!/bin/sh
+# AppImage entry point. WebKitGTK comes from the host (see docs/en/installation.md).
+# WebKitGTK's DMA-BUF renderer shows a blank window on some NVIDIA/Wayland setups;
+# export WEBKIT_DISABLE_DMABUF_RENDERER=0 to opt back in.
+HERE="$(dirname "$(readlink -f "$0")")"
+: "${WEBKIT_DISABLE_DMABUF_RENDERER:=1}"
+export WEBKIT_DISABLE_DMABUF_RENDERER
+exec "$HERE/opt/miko-kagura/miko-kagura" "$@"

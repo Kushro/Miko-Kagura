@@ -122,8 +122,9 @@ impl PersistedSettings {
     }
 }
 
-/// `%APPDATA%\Miko-Kagura\settings.json`, falling back to a file next to
-/// the executable when APPDATA is unavailable (non-Windows / stripped env).
+/// `%APPDATA%\Miko-Kagura\settings.json` on Windows and
+/// `$XDG_CONFIG_HOME/miko-kagura/settings.json` elsewhere, falling back to a
+/// file next to the executable when neither is available (stripped env).
 pub fn settings_path() -> PathBuf {
     if let Ok(appdata) = std::env::var("APPDATA") {
         if !appdata.is_empty() {
@@ -132,10 +133,34 @@ pub fn settings_path() -> PathBuf {
                 .join("settings.json");
         }
     }
+    // Linux packages install read-only (/opt, AppImage mounts), so the
+    // executable's folder is never a safe default there.
+    #[cfg(not(windows))]
+    {
+        if let Some(dir) = xdg_app_dir("XDG_CONFIG_HOME", ".config") {
+            return dir.join("settings.json");
+        }
+    }
     std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.join("miko-kagura-settings.json")))
         .unwrap_or_else(|| PathBuf::from("miko-kagura-settings.json"))
+}
+
+/// `miko-kagura/` under an XDG base directory (`var`, e.g. `XDG_DATA_HOME`),
+/// or under `$HOME/<home_default>` when unset. Relative values are ignored,
+/// as the XDG Base Directory spec requires.
+#[cfg(not(windows))]
+pub fn xdg_app_dir(var: &str, home_default: &str) -> Option<PathBuf> {
+    std::env::var_os(var)
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .filter(|h| !h.is_empty())
+                .map(|h| PathBuf::from(h).join(home_default))
+        })
+        .map(|base| base.join("miko-kagura"))
 }
 
 /// Load the saved settings, plus a warning to surface if the file existed but
