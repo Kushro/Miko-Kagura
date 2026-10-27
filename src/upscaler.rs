@@ -155,9 +155,10 @@ impl Upscaler {
     }
 
     fn detect_gpu_via_vulkaninfo(&self) -> Option<String> {
-        // Prefer the bundled vulkaninfo.exe next to our binaries, then PATH.
+        // Prefer the bundled vulkaninfo next to our binaries, then PATH.
+        let bundled = if cfg!(windows) { "vulkaninfo.exe" } else { "vulkaninfo" };
         let mut candidates: Vec<PathBuf> = Vec::new();
-        candidates.push(self.binary_dir.join("vulkan").join("vulkaninfo.exe"));
+        candidates.push(self.binary_dir.join("vulkan").join(bundled));
         candidates.push(PathBuf::from("vulkaninfo"));
 
         for cmd in candidates {
@@ -406,7 +407,10 @@ fn new_command(program: &Path) -> Command {
 ///      project folder gets moved or renamed, a `binaries/` folder living at
 ///      the project root is still found — no compile-time path is ever
 ///      baked in.
-///   3. `binaries/` under the current working directory (covers `cargo run`
+///   3. Outside Windows, `$XDG_DATA_HOME/miko-kagura/binaries` — the writable
+///      place for engines when the app itself is installed read-only
+///      (AppImage, .deb, AUR Lite).
+///   4. `binaries/` under the current working directory (covers `cargo run`
 ///      / `dx serve`, where cwd is already the project root).
 ///
 /// Falls back to a bare `binaries` (or the given `explicit` path) if nothing
@@ -427,6 +431,16 @@ fn resolve_binary_dir(explicit: &str) -> PathBuf {
                 return absolutize(candidate);
             }
             dir = d.parent().map(Path::to_path_buf);
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        if let Some(dir) = crate::settings::xdg_app_dir("XDG_DATA_HOME", ".local/share") {
+            let candidate = dir.join("binaries");
+            if candidate.is_dir() {
+                return absolutize(candidate);
+            }
         }
     }
 
