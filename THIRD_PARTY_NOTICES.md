@@ -23,7 +23,9 @@ license applies only where Octavio holds the relevant rights.
 
 The `binaries/` directory is not tracked in Git. **Full release packages include
 engines and models** downloaded from the pinned official sources in
-[packaging/upscalers.lock.json](packaging/upscalers.lock.json). Lite omits them.
+[packaging/upscalers.lock.json](packaging/upscalers.lock.json) (Windows) and
+[packaging/upscalers-linux-x64.lock.json](packaging/upscalers-linux-x64.lock.json)
+(Linux). Lite omits them.
 Packaging preserves upstream notices and adds original license texts downloaded
 from hash-pinned source revisions to `binaries/licenses/`.
 
@@ -43,6 +45,11 @@ Packages are redistributed with their original model files. No separately
 downloaded community weights are included. GPU drivers and the Vulkan SDK are
 not distributed. Microsoft WebView2 is a separate runtime installed through
 Microsoft's bootstrapper when needed.
+
+Every Linux package also ships `lib/libxdo.so.3` from Ubuntu's `libxdo3` package
+([xdotool](https://github.com/jordansissel/xdotool), BSD-3-Clause), with its
+copyright file in `lib/libxdo3-copyright.txt`. WebKitGTK, GTK and the other
+system libraries are not distributed; the package manager installs them.
 
 Cargo and Bun dependencies retain their own licenses. The original legal texts
 are not translated or replaced by the explanatory EN/ES guides. Attribution does

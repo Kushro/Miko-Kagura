@@ -9,17 +9,30 @@ Assert-NativeSuccess 'Read triggering release'
 if ($release.tag_name -cne $Tag -or $release.draft) { throw 'The triggering release was changed or unpublished.' }
 if ($release.immutable) { throw 'Cannot attach files to an immutable published release. Upload to a draft before publishing instead.' }
 $dist = "$ProjectRoot/dist/$Tag"
-$files = @(Get-ChildItem $dist -File | Sort-Object Name)
-if ($files.Count -ne 5) { throw 'Expected four packages and SHA256SUMS.txt.' }
+$linuxDist = "$ProjectRoot/dist/$Tag-linux"
 $prefix = "Miko-Kagura-$Tag-windows-x64"
-$expectedNames = @("$prefix-portable-lite.zip", "$prefix-portable-full.zip", "$prefix-setup-lite.exe", "$prefix-setup-full.exe")
-$sums = @(Get-Content "$dist/SHA256SUMS.txt")
-if ($sums.Count -ne 4) { throw 'Expected four checksums.' }
-foreach ($name in $expectedNames) {
-    $line = @($sums | Where-Object { $_ -cmatch ('^[a-f0-9]{64}  ' + [regex]::Escape($name) + '$') })
-    if ($line.Count -ne 1 -or !(Test-Path "$dist/$name")) { throw "Missing package or checksum: $name" }
-    if ((Get-FileHash "$dist/$name").Hash -ine $line[0].Substring(0, 64)) { throw "Package checksum mismatch: $name" }
+$linuxPrefix = "Miko-Kagura-$Tag-linux-x64"
+$platforms = @(
+    @{ Directory = $dist; Names = @("$prefix-portable-lite.zip", "$prefix-portable-full.zip", "$prefix-setup-lite.exe", "$prefix-setup-full.exe") }
+    @{ Directory = $linuxDist; Names = @("$linuxPrefix-portable-lite.tar.gz", "$linuxPrefix-portable-full.tar.gz", "$linuxPrefix-full.AppImage", "$linuxPrefix-full.deb") }
+)
+# Each platform job ships its own SHA256SUMS.txt; verify both, then publish one combined file.
+foreach ($platform in $platforms) {
+    $directory = $platform.Directory
+    if (@(Get-ChildItem $directory -File).Count -ne 5) { throw "Expected four packages and SHA256SUMS.txt in $directory." }
+    $sums = @(Get-Content "$directory/SHA256SUMS.txt")
+    if ($sums.Count -ne 4) { throw "Expected four checksums in $directory." }
+    foreach ($name in $platform.Names) {
+        $line = @($sums | Where-Object { $_ -cmatch ('^[a-f0-9]{64}  ' + [regex]::Escape($name) + '$') })
+        if ($line.Count -ne 1 -or !(Test-Path "$directory/$name")) { throw "Missing package or checksum: $name" }
+        if ((Get-FileHash "$directory/$name").Hash -ine $line[0].Substring(0, 64)) { throw "Package checksum mismatch: $name" }
+    }
 }
+$combined = @(Get-Content "$dist/SHA256SUMS.txt") + @(Get-Content "$linuxDist/SHA256SUMS.txt") | Sort-Object { $_.Substring(66) }
+foreach ($name in $platforms[1].Names) { Move-Item "$linuxDist/$name" $dist }
+Set-Content "$dist/SHA256SUMS.txt" $combined -Encoding ascii
+$files = @(Get-ChildItem $dist -File | Sort-Object Name)
+if ($files.Count -ne 9) { throw 'Expected eight packages and SHA256SUMS.txt.' }
 $pending = @()
 $temp = Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid().ToString())
 New-Item -ItemType Directory $temp | Out-Null

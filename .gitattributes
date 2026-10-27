@@ -1,0 +1,3 @@
+*.sh text eol=lf
+packaging/linux/** text eol=lf
+packaging/aur/** text eol=lf

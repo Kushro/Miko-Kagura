@@ -1,0 +1,38 @@
+# Maintainer: Octavio <Kushro@users.noreply.github.com>
+# Regenerate pkgver, _tag and sha256sums with scripts/update-aur.sh <tag>.
+pkgname=miko-kagura-bin
+pkgver=0.1.0
+_tag=v0.1.0
+pkgrel=1
+pkgdesc='Remote image upscaling companion for Miko (Waifu2x, Real-CUGAN, Real-ESRGAN)'
+arch=('x86_64')
+url='https://github.com/Kushro/Miko-Kagura'
+license=('LicenseRef-PolyForm-Noncommercial-1.0.0')
+# libxdo.so.3 ships inside the bundle (Arch's xdotool provides .so.4); these are its dependencies.
+depends=('webkit2gtk-4.1' 'gtk3' 'libx11' 'libxtst' 'libxinerama' 'libxkbcommon'
+         'vulkan-icd-loader' 'gcc-libs' 'glibc' 'hicolor-icon-theme')
+optdepends=('vulkan-driver: GPU upscaling'
+            'xdg-utils: open results and links in the default apps')
+provides=('miko-kagura')
+conflicts=('miko-kagura')
+options=('!strip' '!debug')
+_bundle="Miko-Kagura-${_tag}-linux-x64-portable-full.tar.gz"
+source=("${_bundle}::${url}/releases/download/${_tag}/${_bundle}"
+        "miko-kagura.sh::${url}/raw/${_tag}/packaging/linux/miko-kagura.sh"
+        "miko-kagura.desktop::${url}/raw/${_tag}/packaging/linux/miko-kagura.desktop"
+        "miko-kagura.svg::${url}/raw/${_tag}/packaging/linux/miko-kagura.svg")
+sha256sums=('SKIP'
+            'SKIP'
+            'SKIP'
+            'SKIP')
+
+package() {
+  install -d "${pkgdir}/opt"
+  cp -a --no-preserve=ownership Miko-Kagura "${pkgdir}/opt/miko-kagura"
+  install -Dm755 miko-kagura.sh "${pkgdir}/usr/bin/miko-kagura"
+  install -Dm644 miko-kagura.desktop "${pkgdir}/usr/share/applications/miko-kagura.desktop"
+  install -Dm644 miko-kagura.svg "${pkgdir}/usr/share/icons/hicolor/scalable/apps/miko-kagura.svg"
+  install -d "${pkgdir}/usr/share/licenses/${pkgname}"
+  ln -s /opt/miko-kagura/LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+  ln -s /opt/miko-kagura/LICENSES "${pkgdir}/usr/share/licenses/${pkgname}/LICENSES"
+}

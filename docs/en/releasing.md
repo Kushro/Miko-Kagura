@@ -3,7 +3,9 @@
 **English** | [Español](../es/releasing.md) | [Home](../../README.md)
 
 The release workflow builds Windows x64 Portable Lite/Full and Setup Lite/Full,
-then attaches them and `SHA256SUMS.txt` to the release that triggered it.
+plus Linux x64 Portable Lite/Full tarballs, a Full AppImage and a Full .deb, then
+attaches them and one combined `SHA256SUMS.txt` to the release that triggered it.
+Every job runs on the runners chosen by `runner.yml` (Avrea by default).
 
 ## Prepare a version
 
@@ -80,16 +82,50 @@ upload to a draft, then publish. See
 [GitHub release events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release)
 and [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases).
 
+## Linux packages and the AUR
+
+The `linux` job runs on Avrea's Ubuntu 24.04 runner, so the packages require
+glibc 2.39 or newer. To reproduce it on Ubuntu 24.04 with the dependencies listed
+in the workflow, Dioxus CLI 0.7.9 and bun:
+
+```bash
+bash scripts/build-release-linux.sh v0.1.0
+bash scripts/test-linux-packages.sh v0.1.0
+```
+
+Packages are in `dist/v0.1.0-linux`. The build downloads the engines pinned in
+`packaging/upscalers-linux-x64.lock.json`, plus pinned `appimagetool` and AppImage
+runtime builds. The .deb gets its `Depends` from `dpkg-shlibdeps`. The test script
+needs Docker (`DOCKER=podman` also works). It installs the .deb and runs the
+AppImage on Ubuntu 24.04, builds and installs the AUR package on Arch, checks
+library resolution, and waits for `/health` to report bundled engines.
+
+The workflow keeps the tested `PKGBUILD` and `.SRCINFO` as the
+`aur-miko-kagura-bin-<tag>` artifact. They are not release assets. After the
+release is published, copy both files into your clone of
+`ssh://aur@aur.archlinux.org/miko-kagura-bin.git`, then commit and push. To
+regenerate them on Arch from a checkout of the tag, run:
+
+```bash
+scripts/update-aur.sh v0.1.0 SHA256SUMS.txt aur-out
+cd aur-out && makepkg --printsrcinfo > .SRCINFO
+```
+
+Publish only stable versions to the AUR. If you do publish a prerelease,
+`0.2.0-beta.1` becomes `pkgver=0.2.0beta.1`, which pacman orders before `0.2.0`.
+
 ## Dry runs and upload retries
 
-Use **Actions → Release Windows packages → Run workflow** with a version tag
+Use **Actions → Release packages → Run workflow** with a version tag
 value to build without publishing. This builds the selected workflow ref,
 not a tag selected by that text field. The version must match that ref's manifests.
-The five output files are retained as an Actions artifact for 14 days.
+Each platform's packages and `SHA256SUMS.txt` are retained as an Actions
+artifact for 14 days.
 
 Uploads skip byte-identical existing assets and fail on conflicting names.
 They never replace downloads silently. If an upload partially fails, download
-the original Actions artifact into `dist/<tag>` and retry with that exact payload:
+the original Actions artifacts into `dist/<tag>` (Windows) and `dist/<tag>-linux`
+(Linux) and retry with that exact payload:
 
 ```powershell
 $env:GH_REPO = 'Kushro/Miko-Kagura'
