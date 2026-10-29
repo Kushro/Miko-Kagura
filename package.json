@@ -1,6 +1,6 @@
 {
   "name": "miko-kagura",
-  "version": "0.1.1-beta.1",
+  "version": "0.1.1",
   "private": true,
   "scripts": {
     "docs:check": "bun scripts/check-docs.mjs",
