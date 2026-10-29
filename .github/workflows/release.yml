@@ -9,12 +9,22 @@ on:
         description: 'Version to validate, e.g. v0.1.0 (build only; does not publish)'
         required: true
         type: string
+      attach:
+        description: 'Build the tag and attach the packages to its draft release'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
+env:
+  # An attach run packages the tagged commit, whatever ref the workflow came from.
+  BUILD_REF: ${{ inputs.attach && format('refs/tags/{0}', inputs.tag) || github.sha }}
+
+# Keyed by tag so publishing a draft waits for an attach run on the same tag.
 concurrency:
-  group: release-${{ github.event.release.id || inputs.tag }}
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
   cancel-in-progress: false
 
 jobs:
@@ -23,8 +33,53 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'v')
     uses: ./.github/workflows/runner.yml
 
-  test:
+  # Finds the release to attach to (none for a plain dry run) and whether it already
+  # has every package, e.g. a draft filled by an attach run and then published.
+  release:
     needs: runner
+    runs-on: ${{ needs.runner.outputs.linux }}
+    timeout-minutes: 5
+    # Read-only, but the API lists draft releases only to tokens with push access.
+    permissions:
+      contents: write
+    outputs:
+      id: ${{ steps.find.outputs.id }}
+      complete: ${{ steps.find.outputs.complete }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      RELEASE_ID: ${{ github.event.release.id }}
+      ATTACH: ${{ inputs.attach }}
+    steps:
+      - id: find
+        run: |
+          if [ -z "$RELEASE_ID" ]; then
+            if [ "$ATTACH" != true ]; then echo complete=false >> "$GITHUB_OUTPUT"; exit 0; fi
+            # A draft has no /releases/tags/<tag> URL, so search the list.
+            RELEASE_ID=$(gh api --paginate "repos/$GH_REPO/releases" \
+              --jq ".[] | select(.draft and .tag_name == \"$RELEASE_TAG\") | .id")
+            [ "$(wc -w <<<"$RELEASE_ID")" = 1 ] || { echo "Expected one draft release for $RELEASE_TAG."; exit 1; }
+          fi
+          # Same eight packages and SHA256SUMS.txt that publish-release.ps1 uploads.
+          prefix="Miko-Kagura-$RELEASE_TAG"
+          expected=$(printf '%s\n' SHA256SUMS.txt \
+            "$prefix-windows-x64-"{portable-lite.zip,portable-full.zip,setup-lite.exe,setup-full.exe} \
+            "$prefix-linux-x64-"{portable-lite.tar.gz,portable-full.tar.gz,full.AppImage,full.deb} | sort)
+          present=$(gh api "repos/$GH_REPO/releases/$RELEASE_ID" --jq '.assets[].name' | sort)
+          if [ -z "$(comm -23 <(echo "$expected") <(echo "$present"))" ]; then
+            complete=true
+            echo "$RELEASE_TAG already has every package; skipping build and upload." >> "$GITHUB_STEP_SUMMARY"
+          else
+            complete=false
+            immutable=$(gh api "repos/$GH_REPO/releases/$RELEASE_ID" --jq .immutable)
+            [ "$immutable" != true ] || { echo 'Published immutable releases cannot accept new assets.'; exit 1; }
+          fi
+          { echo "id=$RELEASE_ID"; echo "complete=$complete"; } >> "$GITHUB_OUTPUT"
+
+  test:
+    needs: [runner, release]
+    if: needs.release.outputs.complete != 'true'
     runs-on: ${{ needs.runner.outputs.windows }}
     timeout-minutes: 45
     env:
@@ -37,7 +92,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.BUILD_REF }}
           persist-credentials: false
       - name: Set up Rust
         run: |
@@ -54,7 +109,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'cargo test failed.' }
 
   windows:
-    needs: runner
+    needs: [runner, release]
+    if: needs.release.outputs.complete != 'true'
     runs-on: ${{ needs.runner.outputs.windows }}
     timeout-minutes: 90
     env:
@@ -67,7 +123,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.BUILD_REF }}
           persist-credentials: false
       - name: Set up Rust
         run: |
@@ -117,7 +173,8 @@ jobs:
           retention-days: 14
 
   linux:
-    needs: runner
+    needs: [runner, release]
+    if: needs.release.outputs.complete != 'true'
     # Avrea Ubuntu 24.04: packages inherit its glibc 2.39 floor, so do not swap
     # this for a newer image without updating the documented requirements.
     runs-on: ${{ needs.runner.outputs.linux }}
@@ -129,18 +186,8 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.BUILD_REF }}
           persist-credentials: false
-      # Runs here because gh cannot reach the API from Avrea's Windows image.
-      - name: Reject immutable releases before building
-        if: github.event_name == 'release'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_ID: ${{ github.event.release.id }}
-        run: |
-          immutable=$(gh api "repos/$GH_REPO/releases/$RELEASE_ID" --jq .immutable)
-          [ "$immutable" != true ] || { echo 'Published immutable releases cannot accept new assets.'; exit 1; }
       # The publish job runs publish-release.ps1 on this runner type.
       - name: Check PowerShell for the publish job
         run: pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
@@ -198,15 +245,15 @@ jobs:
           retention-days: 90
 
   publish:
-    if: github.event_name == 'release'
-    needs: [runner, test, windows, linux]
+    if: needs.release.outputs.id != '' && needs.release.outputs.complete != 'true'
+    needs: [runner, release, test, windows, linux]
     # Linux: gh cannot verify api.github.com on Avrea's Windows image.
     runs-on: ${{ needs.runner.outputs.linux }}
     timeout-minutes: 20
     permissions:
       contents: write
     env:
-      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
     defaults:
       run:
         shell: pwsh
@@ -230,9 +277,10 @@ jobs:
         with:
           name: linux-x64-${{ env.RELEASE_TAG }}
           path: dist/${{ env.RELEASE_TAG }}-linux
-      - name: Attach files to the triggering release
+      - name: Attach files to the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_ID: ${{ github.event.release.id }}
-        run: ./scripts/publish-release.ps1 -Tag $env:RELEASE_TAG -ReleaseId $env:RELEASE_ID
+          RELEASE_ID: ${{ needs.release.outputs.id }}
+          DRAFT: ${{ github.event_name == 'workflow_dispatch' }}
+        run: ./scripts/publish-release.ps1 -Tag $env:RELEASE_TAG -ReleaseId $env:RELEASE_ID -Draft:($env:DRAFT -eq 'true')

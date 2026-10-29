@@ -78,10 +78,26 @@ personal para subir archivos. Crear la release desde otro workflow con
 apropiado o ejecuta los pasos de empaquetado desde ese mismo workflow.
 
 Las **releases inmutables publicadas no admiten nuevos archivos**. Este workflow
-se detiene al detectarlas. Si necesitas inmutabilidad, cambia el proceso para
-compilar, subir a un borrador y después publicar. Consulta
+se detiene al detectarlas. Si necesitas inmutabilidad, completa primero un borrador
+(consulta [Adjuntar a un borrador antes de publicar](#adjuntar-a-un-borrador-antes-de-publicar)). Consulta
 [eventos de release de GitHub](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release)
 y [releases inmutables](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases).
+
+### Adjuntar a un borrador antes de publicar
+
+Para revisar las descargas antes de que alguien vea la release, créala como
+borrador y ejecuta el workflow con `attach` marcado:
+
+```powershell
+gh release create v0.1.0 --repo Kushro/Miko-Kagura --verify-tag --draft --title "Miko-Kagura v0.1.0" --generate-notes
+gh workflow run release.yml --repo Kushro/Miko-Kagura -f tag=v0.1.0 -f attach=true
+```
+
+La ejecución compila y prueba el commit de la tag, no la referencia del workflow,
+y sube los archivos al único borrador de esa tag; rechaza una release publicada.
+Cuando después publiques el borrador, `release: published` encuentra todos los
+paquetes ya adjuntos y omite la compilación y la subida, así que se publican los
+mismos archivos que revisaste.
 
 ## Paquetes Linux y el AUR
 
@@ -125,7 +141,7 @@ Publica en el AUR solo versiones estables. Si publicas una prerelease,
 
 Usa **Actions → Release packages → Run workflow** e indica una tag de
 versión para compilar sin publicar. Se compila la referencia seleccionada del
-workflow, no una tag elegida por ese campo de texto. La versión debe coincidir
+workflow (salvo con `attach` marcado), no una tag elegida por ese campo de texto. La versión debe coincidir
 con sus manifiestos. Los paquetes y el `SHA256SUMS.txt` de cada plataforma se
 conservan como artefacto de Actions durante 14 días.
 
@@ -139,6 +155,8 @@ $env:GH_REPO = 'Kushro/Miko-Kagura'
 $releaseId = gh release view v0.1.0 --json databaseId --jq .databaseId
 pwsh -File scripts/publish-release.ps1 -Tag v0.1.0 -ReleaseId $releaseId
 ```
+
+Agrega `-Draft` si la release todavía es un borrador.
 
 Una recompilación puede cambiar las fechas internas de ZIP e instaladores, por
 lo que un reintento completo puede detectar un conflicto válido. Inspecciona los

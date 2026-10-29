@@ -1,12 +1,15 @@
 #Requires -Version 7.0
 [CmdletBinding()]
-param([Parameter(Mandatory)][string] $Tag, [Parameter(Mandatory)][long] $ReleaseId)
+# -Draft attaches to a draft before it is published; without it the release must be published.
+param([Parameter(Mandatory)][string] $Tag, [Parameter(Mandatory)][long] $ReleaseId, [switch] $Draft)
 . "$PSScriptRoot/release-common.ps1"
 $null = Get-ReleaseVersion $Tag
 if (!$env:GH_REPO) { throw 'GH_REPO is required.' }
 $release = gh api "repos/$env:GH_REPO/releases/$ReleaseId" | ConvertFrom-Json -AsHashtable
 Assert-NativeSuccess 'Read triggering release'
-if ($release.tag_name -cne $Tag -or $release.draft) { throw 'The triggering release was changed or unpublished.' }
+if ($release.tag_name -cne $Tag) { throw 'The release was retagged.' }
+if ($release.draft -and !$Draft) { throw 'The triggering release was unpublished.' }
+if (!$release.draft -and $Draft) { throw 'The release is already published; publishing it uploads the packages.' }
 if ($release.immutable) { throw 'Cannot attach files to an immutable published release. Upload to a draft before publishing instead.' }
 $dist = "$ProjectRoot/dist/$Tag"
 $linuxDist = "$ProjectRoot/dist/$Tag-linux"

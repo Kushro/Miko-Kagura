@@ -77,10 +77,25 @@ is needed for uploading. Creating a release from a different workflow using
 App token or invoke the packaging steps in that workflow instead.
 
 Published **immutable releases cannot receive new assets**. This workflow fails
-early for them. If immutability is required, change the release process to build,
-upload to a draft, then publish. See
+early for them. If immutability is required, fill a draft first (see
+[Attach to a draft before publishing](#attach-to-a-draft-before-publishing)). See
 [GitHub release events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#release)
 and [immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases).
+
+### Attach to a draft before publishing
+
+To review the downloads before anyone sees the release, create it as a draft and
+run the workflow with `attach` checked:
+
+```powershell
+gh release create v0.1.0 --repo Kushro/Miko-Kagura --verify-tag --draft --title "Miko-Kagura v0.1.0" --generate-notes
+gh workflow run release.yml --repo Kushro/Miko-Kagura -f tag=v0.1.0 -f attach=true
+```
+
+The run builds and tests the tagged commit, not the workflow ref, and uploads to
+the only draft for that tag; it refuses a published release. When you later
+publish the draft, `release: published` finds every package already attached and
+skips the build and upload, so the published files are the ones you reviewed.
 
 ## Linux packages and the AUR
 
@@ -124,7 +139,7 @@ Publish only stable versions to the AUR. If you do publish a prerelease,
 ## Dry runs and upload retries
 
 Use **Actions → Release packages → Run workflow** with a version tag
-value to build without publishing. This builds the selected workflow ref,
+value to build without publishing. Unless `attach` is checked, this builds the selected workflow ref,
 not a tag selected by that text field. The version must match that ref's manifests.
 Each platform's packages and `SHA256SUMS.txt` are retained as an Actions
 artifact for 14 days.
@@ -139,6 +154,8 @@ $env:GH_REPO = 'Kushro/Miko-Kagura'
 $releaseId = gh release view v0.1.0 --json databaseId --jq .databaseId
 pwsh -File scripts/publish-release.ps1 -Tag v0.1.0 -ReleaseId $releaseId
 ```
+
+Add `-Draft` when the release is still a draft.
 
 Rebuilding can change archive/installer timestamps, so a full rerun may correctly
 report a conflict. Inspect existing assets before explicitly removing any.
