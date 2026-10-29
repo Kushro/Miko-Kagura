@@ -100,6 +100,13 @@ needs Docker (`DOCKER=podman` also works). It installs the .deb and runs the
 AppImage on Ubuntu 24.04, builds and installs the AUR package on Arch, checks
 library resolution, and waits for `/health` to report bundled engines.
 
+The AppImage and the .deb carry PNG icons, AppStream metadata
+(`packaging/linux/miko-kagura.metainfo.xml`, filled with the release version and
+date) and, in the AppImage, `X-AppImage-Version`, so AppImage managers show the
+icon and version. The PNGs in `packaging/linux/icons` are committed; after editing
+`packaging/linux/miko-kagura.svg`, regenerate them with
+`bash scripts/render-linux-icons.sh` (needs `rsvg-convert`).
+
 The workflow keeps the tested `PKGBUILD` and `.SRCINFO` as the
 `aur-miko-kagura-bin-<tag>` artifact. They are not release assets. After the
 release is published, copy both files into your clone of

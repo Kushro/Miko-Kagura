@@ -101,6 +101,13 @@ script de pruebas necesita Docker (también funciona `DOCKER=podman`). Instala e
 .deb y ejecuta el AppImage en Ubuntu 24.04, compila e instala el paquete del AUR
 en Arch, comprueba las bibliotecas y espera a que `/health` detecte los motores.
 
+El AppImage y el .deb incluyen iconos PNG, metadata AppStream
+(`packaging/linux/miko-kagura.metainfo.xml`, completada con la versión y la fecha
+de la release) y, en el AppImage, `X-AppImage-Version`, para que los gestores de
+AppImage muestren el icono y la versión. Los PNG de `packaging/linux/icons` están
+versionados; si editás `packaging/linux/miko-kagura.svg`, regeneralos con
+`bash scripts/render-linux-icons.sh` (requiere `rsvg-convert`).
+
 El workflow conserva el `PKGBUILD` y el `.SRCINFO` probados como artefacto
 `aur-miko-kagura-bin-<tag>`. No son archivos de la release. Tras publicarla,
 copia ambos archivos a tu clon de `ssh://aur@aur.archlinux.org/miko-kagura-bin.git`,

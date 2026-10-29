@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata for the AppImage and the .deb. scripts/build-release-linux.sh
+     fills in the release version and date placeholders; the launchable must match the .desktop name. -->
+<component type="desktop-application">
+  <id>com.kushro.miko-kagura</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-PolyForm-Noncommercial-1.0.0</project_license>
+  <name>Miko-Kagura</name>
+  <summary>Remote image upscaling for Miko</summary>
+  <summary xml:lang="es">Escalado remoto de imágenes para Miko</summary>
+  <developer id="com.kushro">
+    <name>Octavio</name>
+  </developer>
+  <description>
+    <p>
+      Desktop dashboard and local HTTP server that upscales images for the Miko reader
+      with the bundled Waifu2x, Real-CUGAN and Real-ESRGAN ncnn-vulkan engines.
+    </p>
+    <p xml:lang="es">
+      Panel de escritorio y servidor HTTP local que escala imágenes para el lector Miko
+      con los motores Waifu2x, Real-CUGAN y Real-ESRGAN ncnn-vulkan incluidos.
+    </p>
+  </description>
+  <launchable type="desktop-id">miko-kagura.desktop</launchable>
+  <icon type="stock">miko-kagura</icon>
+  <url type="homepage">https://github.com/Kushro/Miko-Kagura</url>
+  <url type="bugtracker">https://github.com/Kushro/Miko-Kagura/issues</url>
+  <categories>
+    <category>Graphics</category>
+  </categories>
+  <keywords>
+    <keyword>upscale</keyword>
+    <keyword>waifu2x</keyword>
+    <keyword>realcugan</keyword>
+    <keyword>realesrgan</keyword>
+    <keyword>miko</keyword>
+  </keywords>
+  <provides>
+    <binary>miko-kagura</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+</component>

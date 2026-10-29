@@ -52,10 +52,27 @@ FULL="$WORK/full/Miko-Kagura"
 
 # Both system packages carry Full so upscaling works without extra setup. The app
 # stays in one folder under /opt so assets/ and binaries/ resolve beside the executable.
+# AppStream metadata gets this release's version and the tag's date (today if the tag
+# is not cut yet), so software centers and AppImage managers show the right version.
+RELEASE_DATE=$(git log -1 --format=%cs "$TAG" 2>/dev/null || date -u +%F)
+METAINFO="$WORK/miko-kagura.metainfo.xml"
+sed -e "s/@VERSION@/$VERSION/" -e "s/@DATE@/$RELEASE_DATE/" \
+    packaging/linux/miko-kagura.metainfo.xml >"$METAINFO"
+! grep -q '@[A-Z]*@' "$METAINFO" || die 'Unfilled placeholder in the AppStream metadata.'
+if command -v appstreamcli >/dev/null; then
+    appstreamcli validate --no-net "$METAINFO" || die 'Invalid AppStream metadata.'
+fi
+ICON_SIZES="16 24 32 48 64 128 256 512"
 install_desktop_files() {
-    local root=$1
+    local root=$1 size
     install -Dm644 packaging/linux/miko-kagura.desktop "$root/usr/share/applications/miko-kagura.desktop"
     install -Dm644 packaging/linux/miko-kagura.svg "$root/usr/share/icons/hicolor/scalable/apps/miko-kagura.svg"
+    # PNGs too: several desktops, AppImage managers and .DirIcon readers ignore SVG.
+    for size in $ICON_SIZES; do
+        install -Dm644 "packaging/linux/icons/${size}x${size}.png" \
+            "$root/usr/share/icons/hicolor/${size}x${size}/apps/miko-kagura.png"
+    done
+    install -Dm644 "$METAINFO" "$root/usr/share/metainfo/miko-kagura.metainfo.xml"
 }
 
 # ── .deb ──────────────────────────────────────────────────────────────
@@ -106,10 +123,22 @@ APPDIR="$WORK/Miko-Kagura.AppDir"
 mkdir -p "$APPDIR/opt"
 cp -a "$FULL" "$APPDIR/opt/miko-kagura"
 install -m755 packaging/linux/AppRun "$APPDIR/AppRun"
-install -m644 packaging/linux/miko-kagura.desktop packaging/linux/miko-kagura.svg "$APPDIR/"
 install_desktop_files "$APPDIR"
-# CI runners have no FUSE; the tool unpacks itself instead of mounting.
-ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 "$TOOLS/appimagetool" --no-appstream \
+# The top-level icon and .DirIcon are what file managers and AppImage managers
+# (Gear Lever, AppImageLauncher) show, and the spec wants .DirIcon to be a PNG.
+# X-AppImage-Version is where those managers read the version from.
+install -m644 packaging/linux/icons/256x256.png "$APPDIR/miko-kagura.png"
+ln -s miko-kagura.png "$APPDIR/.DirIcon"
+printf 'X-AppImage-Version=%s\n' "$VERSION" >>"$APPDIR/usr/share/applications/miko-kagura.desktop"
+cp "$APPDIR/usr/share/applications/miko-kagura.desktop" "$APPDIR/miko-kagura.desktop"
+grep -qx "X-AppImage-Version=$VERSION" "$APPDIR/miko-kagura.desktop" ||
+    die 'The AppImage desktop entry has no X-AppImage-Version.'
+if command -v desktop-file-validate >/dev/null; then
+    desktop-file-validate "$APPDIR/miko-kagura.desktop" || die 'Invalid desktop entry.'
+fi
+# CI runners have no FUSE; the tool unpacks itself instead of mounting. Metadata is
+# validated above with appstreamcli when present, so appimagetool does not need it.
+ARCH=x86_64 VERSION="$VERSION" APPIMAGE_EXTRACT_AND_RUN=1 "$TOOLS/appimagetool" --no-appstream \
     --runtime-file "$runtime" "$APPDIR" "$DIST/$PREFIX-full.AppImage"
 chmod 755 "$DIST/$PREFIX-full.AppImage"
 

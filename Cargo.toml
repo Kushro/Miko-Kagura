@@ -1,6 +1,6 @@
 [package]
 name = "miko-kagura"
-version = "0.1.0"
+version = "0.1.1-beta.1"
 edition = "2021"
 description = "Miko's remote image upscaling companion with a Dioxus desktop dashboard."
 license = "PolyForm-Noncommercial-1.0.0"
