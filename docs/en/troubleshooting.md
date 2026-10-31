@@ -46,7 +46,7 @@ fragment. Check **Errors** for missing or failed repairs. For direct image
 uploads, decoding belongs to the reader. See [Configuration](configuration.md).
 
 Comparison labels require an available TrueType font, such as
-`C:\Windows\Fonts\arial.ttf`. Without a font, the side-by-side image has no labels.
+`C:\Windows\Fonts\arial.ttf` on Windows or DejaVu Sans, Liberation Sans or Noto Sans on Linux. Without a font, the side-by-side image has no labels.
 
 ## Installation or updates fail
 
