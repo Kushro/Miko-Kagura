@@ -43,8 +43,13 @@ Invoke-WebRequest -Method Post -Uri 'http://192.168.1.100:8282/upscale/url' -Con
 ```
 
 Reemplaza la URL de ejemplo por una imagen accesible. Las cabeceras del cliente
-tienen prioridad sobre las de los plugins. Conserva los fragmentos de URL para
-los [plugins de reparación](configuration.md#plugins-de-fuentes).
+tienen prioridad sobre las de los plugins. El servidor descarga como máximo
+cuatro imágenes a la vez de cada host y reintenta hasta dos veces más los
+timeouts, errores de conexión y HTTP 408/429/5xx, esperando lo que pida
+`Retry-After` (hasta 10 segundos) o demoras crecientes con un componente
+aleatorio. Los desafíos de Cloudflare y otros bloqueos fallan de inmediato,
+porque repetir no los resuelve. Conserva los fragmentos de URL para los [plugins
+de reparación](configuration.md#plugins-de-fuentes).
 
 ## Leer resultados por lotes
 

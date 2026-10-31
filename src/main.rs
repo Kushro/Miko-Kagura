@@ -19,6 +19,7 @@ use tokio::sync::broadcast;
 mod cache;
 mod clamp;
 mod config;
+mod fetch;
 mod gpu_queue;
 mod history;
 mod plugins;
@@ -77,6 +78,7 @@ fn main() {
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
              (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         )
+        .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
         .build()
         .unwrap_or_default();
@@ -110,6 +112,7 @@ fn main() {
         device_dpi: AtomicU32::new(persisted.device_dpi),
         clamp_headroom_pct: AtomicU32::new(persisted.clamp_headroom_pct),
         http_client,
+        host_limiter: Default::default(),
         gpu: gpu_queue::GpuQueue::spawn(),
         batch_counter: AtomicU64::new(1),
         enabled_plugins: Mutex::new(enabled_plugins),
