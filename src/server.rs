@@ -27,7 +27,7 @@ use tower_http::cors::CorsLayer;
 use crate::config::get_model;
 use crate::gpu_queue::GpuQueue;
 use crate::history::{RequestHistory, RequestRecord, RequestSource};
-use crate::upscaler::{enforce_webp_limit, normalize_png_bytes, Upscaler};
+use crate::upscaler::{enforce_webp_limit, image_dimensions, normalize_png_bytes, Upscaler};
 
 /// Server-side counters.
 #[derive(Default, Clone, Copy)]
@@ -414,7 +414,7 @@ fn clamp_and_normalize(state: &AppState, upscaled: Vec<u8>) -> (Vec<u8>, Option<
     // Android's BitmapFactory (and Coil) refuse to decode. Re-encoding through
     // the `image` crate guarantees a clean 8-bit RGB/RGBA PNG.
     let upscaled = if state.normalize_png.load(Ordering::Relaxed) {
-        normalize_png_bytes(&upscaled)
+        normalize_png_bytes(upscaled)
     } else {
         upscaled
     };
@@ -589,14 +589,6 @@ fn apply_plugins(state: &Arc<AppState>, url: &str, image: DownloadedImage) -> Ve
         )));
     }
     bytes
-}
-
-/// Decode image dimensions; (0, 0) if the bytes can't be parsed.
-fn image_dimensions(bytes: &[u8]) -> (u32, u32) {
-    match image::load_from_memory(bytes) {
-        Ok(img) => (img.width(), img.height()),
-        Err(_) => (0, 0),
-    }
 }
 
 /// `POST /upscale` — single raw image in, upscaled PNG out.

@@ -11,6 +11,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use ab_glyph::{FontVec, PxScale};
 use image::{Rgb, RgbImage};
 
+use crate::upscaler::image_dimensions;
+
 const DEFAULT_MAX_ENTRIES: usize = 50;
 
 /// Default byte budget for the session history dir (1 GiB). When exceeded, the
@@ -201,8 +203,8 @@ impl RequestHistory {
         self.counter += 1;
         let rid = self.counter;
 
-        let (w_in, h_in) = image_size(input_bytes);
-        let (w_out, h_out) = image_size(output_bytes);
+        let (w_in, h_in) = image_dimensions(input_bytes);
+        let (w_out, h_out) = image_dimensions(output_bytes);
 
         let dir = self.dir();
         let in_path = dir.join(format!("{rid:06}_before.png"));
@@ -353,13 +355,6 @@ impl RequestHistory {
 // ── Free helpers ──────────────────────────────────────────────────────
 
 /// Read width/height from image bytes. (0, 0) on failure.
-fn image_size(data: &[u8]) -> (u32, u32) {
-    match image::load_from_memory(data) {
-        Ok(img) => (img.width(), img.height()),
-        Err(_) => (0, 0),
-    }
-}
-
 fn safe_unlink(path: Option<&Path>) {
     if let Some(p) = path {
         let _ = std::fs::remove_file(p);
