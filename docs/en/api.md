@@ -64,4 +64,8 @@ rather than assuming the entire batch succeeded.
 
 The image-batch route allows a body up to 32 times the configured single-request
 limit to accommodate multiple base64 images. URL batches download images in
-parallel; actual engine access is coordinated by the server.
+parallel and queue each one for upscaling as soon as it arrives. The server
+runs the engine one job at a time and processes images waiting with the same
+settings in a single engine run, so concurrent requests are cheaper than
+sequential ones. `X-Process-Time-Ms` and `time_ms` report the engine time
+attributed to each image, excluding time spent waiting in the queue.

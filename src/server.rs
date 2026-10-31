@@ -25,6 +25,7 @@ use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 
 use crate::config::get_model;
+use crate::gpu_queue::GpuQueue;
 use crate::history::{RequestHistory, RequestRecord, RequestSource};
 use crate::upscaler::{enforce_webp_limit, normalize_png_bytes, Upscaler};
 
@@ -80,6 +81,8 @@ pub struct AppState {
     pub clamp_headroom_pct: AtomicU32,
     /// Shared HTTP client for the URL endpoints (connection-pooled).
     pub http_client: reqwest::Client,
+    /// Serialises engine runs onto the GPU and batches queued images.
+    pub gpu: GpuQueue,
     /// Monotonic id handed to each batch request so its entries can be grouped.
     pub batch_counter: AtomicU64,
     /// Ids of source plugins the user enabled. Empty by default — every plugin
@@ -301,55 +304,27 @@ async fn run_upscale(
     let scale = snapshot.current_scale;
     let noise = snapshot.current_noise;
 
-    let start = Instant::now();
-    let input_for_proc = input.clone();
-    let result = tokio::task::spawn_blocking(move || snapshot.process(&input_for_proc)).await;
-
-    let upscaled = match result {
-        Ok(Ok(bytes)) => bytes,
-        Ok(Err(e)) => {
+    // Engine access goes through the GPU queue, which may run this image in
+    // the same engine invocation as other queued ones.
+    let upscaled = match state.gpu.submit(snapshot, input.clone()).await {
+        Ok(p) => p,
+        Err(e) => {
             state.emit(ServerEvent::Error(format!("{model}: {e}")));
             return Err(e);
         }
-        Err(e) => {
-            state.emit(ServerEvent::Error(format!("{model}: worker panicked: {e}")));
-            return Err("Worker thread failed".to_string());
-        }
     };
+    let upscale_ms = upscaled.engine_ms;
 
-    let upscale_ms = start.elapsed().as_millis() as u64;
-
-    // ── Optional WebP compatibility (clamp to 16383px) ────────────────
-    // WebP can't hold a dimension above 16383px; oversized upscales (e.g. tall
-    // webtoon pages) break WebP encoding on the client. Downscale proportionally
-    // to fit, preserving aspect ratio. No-op (no copy) when already within limits.
-    let mut webp_ms: Option<u64> = None;
-    let upscaled = if state.webp_compat.load(Ordering::Relaxed) {
-        let webp_start = Instant::now();
-        let limit = state.webp_max_dimension.load(Ordering::Relaxed);
-        match enforce_webp_limit(&upscaled, limit) {
-            Some((bytes, (fw, fh, tw, th))) => {
-                webp_ms = Some(webp_start.elapsed().as_millis() as u64);
-                state.emit(ServerEvent::Info(format!(
-                    "WebP compat: downscaled {fw}x{fh} → {tw}x{th} (≤{limit}px)"
-                )));
-                bytes
-            }
-            None => upscaled,
-        }
-    } else {
-        upscaled
-    };
-
-    // ── Optional PNG normalisation (Android BitmapFactory fix) ────────
-    // NCNN binaries can emit 16-bit, palette, or grayscale+alpha PNGs that
-    // Android's BitmapFactory (and Coil) refuse to decode. Re-encoding through
-    // the `image` crate guarantees a clean 8-bit RGB/RGBA PNG.
-    let upscaled = if state.normalize_png.load(Ordering::Relaxed) {
-        normalize_png_bytes(&upscaled)
-    } else {
-        upscaled
-    };
+    // Clamp and normalisation decode and re-encode the whole upscaled image,
+    // so they run on the blocking pool rather than the async workers.
+    let post_state = state.clone();
+    let (upscaled, webp_ms) =
+        tokio::task::spawn_blocking(move || clamp_and_normalize(&post_state, upscaled.bytes))
+            .await
+            .map_err(|e| {
+                state.emit(ServerEvent::Error(format!("{model}: worker panicked: {e}")));
+                "Worker thread failed".to_string()
+            })?;
 
     // ── Optional oxipng lossless compression ──────────────────────────
     let (final_out, compress_ms) = if state.compress_enabled.load(Ordering::Relaxed) {
@@ -407,6 +382,43 @@ async fn run_upscale(
         width,
         height,
     })
+}
+
+/// The WebP clamp and PNG normalisation steps of [`run_upscale`]. Returns the
+/// image and the clamp's time when it actually resized.
+fn clamp_and_normalize(state: &AppState, upscaled: Vec<u8>) -> (Vec<u8>, Option<u64>) {
+    // ── Optional WebP compatibility (clamp to 16383px) ────────────────
+    // WebP can't hold a dimension above 16383px; oversized upscales (e.g. tall
+    // webtoon pages) break WebP encoding on the client. Downscale proportionally
+    // to fit, preserving aspect ratio. No-op (no copy) when already within limits.
+    let mut webp_ms: Option<u64> = None;
+    let upscaled = if state.webp_compat.load(Ordering::Relaxed) {
+        let webp_start = Instant::now();
+        let limit = state.webp_max_dimension.load(Ordering::Relaxed);
+        match enforce_webp_limit(&upscaled, limit) {
+            Some((bytes, (fw, fh, tw, th))) => {
+                webp_ms = Some(webp_start.elapsed().as_millis() as u64);
+                state.emit(ServerEvent::Info(format!(
+                    "WebP compat: downscaled {fw}x{fh} → {tw}x{th} (≤{limit}px)"
+                )));
+                bytes
+            }
+            None => upscaled,
+        }
+    } else {
+        upscaled
+    };
+
+    // ── Optional PNG normalisation (Android BitmapFactory fix) ────────
+    // NCNN binaries can emit 16-bit, palette, or grayscale+alpha PNGs that
+    // Android's BitmapFactory (and Coil) refuse to decode. Re-encoding through
+    // the `image` crate guarantees a clean 8-bit RGB/RGBA PNG.
+    let upscaled = if state.normalize_png.load(Ordering::Relaxed) {
+        normalize_png_bytes(&upscaled)
+    } else {
+        upscaled
+    };
+    (upscaled, webp_ms)
 }
 
 /// Build the binary PNG response (with the X-Upscale-* headers) for a single image.
@@ -656,32 +668,56 @@ async fn upscale_batch(
         req.images.len()
     )));
 
-    let mut results = Vec::with_capacity(req.images.len());
-    for (i, b64) in req.images.iter().enumerate() {
-        match BASE64.decode(b64.as_bytes()) {
-            Ok(bytes) => {
-                let r = run_upscale(
-                    &state,
-                    snapshot.clone(),
-                    bytes,
-                    RequestSource::Batch,
-                    Some(batch_id),
-                    None,
-                )
-                .await;
-                results.push(match r {
-                    Ok(o) => BatchItem::ok(i, &o),
-                    Err(e) => BatchItem::err(i, e),
-                });
+    // Submit every image at once so the GPU queue can group them into shared
+    // engine runs; post-processing and base64 encoding then run in parallel.
+    let n = req.images.len();
+    let mut set = tokio::task::JoinSet::new();
+    for (i, b64) in req.images.into_iter().enumerate() {
+        let state = state.clone();
+        let snapshot = snapshot.clone();
+        set.spawn(async move {
+            match BASE64.decode(b64.as_bytes()) {
+                Ok(bytes) => {
+                    let r = run_upscale(
+                        &state,
+                        snapshot,
+                        bytes,
+                        RequestSource::Batch,
+                        Some(batch_id),
+                        None,
+                    )
+                    .await;
+                    match r {
+                        Ok(o) => BatchItem::ok(i, &o),
+                        Err(e) => BatchItem::err(i, e),
+                    }
+                }
+                Err(e) => {
+                    let msg = format!("Batch #{batch_id}[{i}]: invalid base64: {e}");
+                    state.emit(ServerEvent::Error(msg.clone()));
+                    BatchItem::err(i, msg)
+                }
             }
-            Err(e) => {
-                let msg = format!("Batch #{batch_id}[{i}]: invalid base64: {e}");
-                state.emit(ServerEvent::Error(msg.clone()));
-                results.push(BatchItem::err(i, msg));
-            }
+        });
+    }
+    let results = collect_batch(set, n).await;
+    Ok(Json(BatchResponse { batch_id, results }))
+}
+
+/// Gather a batch's per-item tasks back into request order.
+async fn collect_batch(mut set: tokio::task::JoinSet<BatchItem>, n: usize) -> Vec<BatchItem> {
+    let mut slots: Vec<Option<BatchItem>> = (0..n).map(|_| None).collect();
+    while let Some(joined) = set.join_next().await {
+        if let Ok(item) = joined {
+            let i = item.index;
+            slots[i] = Some(item);
         }
     }
-    Ok(Json(BatchResponse { batch_id, results }))
+    slots
+        .into_iter()
+        .enumerate()
+        .map(|(i, slot)| slot.unwrap_or_else(|| BatchItem::err(i, "batch task dropped".to_string())))
+        .collect()
 }
 
 /// `POST /upscale/batch/url` — many URLs in; downloaded in parallel then upscaled.
@@ -699,49 +735,35 @@ async fn upscale_batch_url(
         "Batch #{batch_id}: downloading {n} URL(s)"
     )));
 
-    // Download all images in parallel, preserving request order.
+    // Each image is downloaded in parallel and queued for upscaling as soon as
+    // it arrives, so the GPU starts on the first page while the rest download.
     let headers = Arc::new(req.headers);
     let mut set = tokio::task::JoinSet::new();
     for (i, url) in req.urls.into_iter().enumerate() {
         let state = state.clone();
+        let snapshot = snapshot.clone();
         let headers = headers.clone();
         set.spawn(async move {
-            let r = download_and_unscramble(&state, &url, &headers).await;
-            (i, url, r)
+            let bytes = match download_and_unscramble(&state, &url, &headers).await {
+                Ok(b) => b,
+                Err(e) => return BatchItem::err(i, e), // already logged in download_image
+            };
+            let r = run_upscale(
+                &state,
+                snapshot,
+                bytes,
+                RequestSource::BatchUrl,
+                Some(batch_id),
+                Some(url),
+            )
+            .await;
+            match r {
+                Ok(o) => BatchItem::ok(i, &o),
+                Err(e) => BatchItem::err(i, e),
+            }
         });
     }
-    let mut downloaded: Vec<Option<(String, Result<Vec<u8>, String>)>> =
-        (0..n).map(|_| None).collect();
-    while let Some(joined) = set.join_next().await {
-        if let Ok((i, url, r)) = joined {
-            downloaded[i] = Some((url, r));
-        }
-    }
-
-    // Upscale the successfully downloaded images.
-    let mut results = Vec::with_capacity(n);
-    for (i, slot) in downloaded.into_iter().enumerate() {
-        let item = match slot {
-            Some((url, Ok(bytes))) => {
-                match run_upscale(
-                    &state,
-                    snapshot.clone(),
-                    bytes,
-                    RequestSource::BatchUrl,
-                    Some(batch_id),
-                    Some(url),
-                )
-                .await
-                {
-                    Ok(o) => BatchItem::ok(i, &o),
-                    Err(e) => BatchItem::err(i, e),
-                }
-            }
-            Some((_, Err(e))) => BatchItem::err(i, e), // already logged in download_image
-            None => BatchItem::err(i, "download task dropped".to_string()),
-        };
-        results.push(item);
-    }
+    let results = collect_batch(set, n).await;
     Ok(Json(BatchResponse { batch_id, results }))
 }
 
