@@ -381,8 +381,21 @@ fn load_font() -> Option<FontVec> {
     let candidates: &[&str] = &[
         r"C:\Windows\Fonts\arial.ttf",
         r"C:\Windows\Fonts\segoeui.ttf",
+        // Debian/Ubuntu layout.
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+        // Arch/CachyOS layout.
+        "/usr/share/fonts/TTF/DejaVuSans.ttf",
+        "/usr/share/fonts/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/noto/NotoSans-Regular.ttf",
+        // Fedora layout.
+        "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/google-noto/NotoSans-Regular.ttf",
+        // macOS.
         "/Library/Fonts/Arial.ttf",
+        "/System/Library/Fonts/Supplemental/Arial.ttf",
     ];
     for path in candidates {
         if let Ok(bytes) = std::fs::read(path) {
@@ -405,8 +418,8 @@ pub fn build_comparison(record: &RequestRecord) -> Option<PathBuf> {
         }
     }
 
-    let before = image::open(&record.input_path).ok()?.to_rgb8();
-    let after = image::open(&record.output_path).ok()?.to_rgb8();
+    let before = open_sniffed(&record.input_path)?.to_rgb8();
+    let after = open_sniffed(&record.output_path)?.to_rgb8();
 
     let gap: u32 = 24;
     let label_h: u32 = 56;
@@ -471,6 +484,25 @@ pub fn build_comparison(record: &RequestRecord) -> Option<PathBuf> {
         .with_file_name(format!("{:06}_compare.png", record.id));
     canvas.save(&out_path).ok()?;
     Some(out_path)
+}
+
+/// Decode an image by sniffing its content rather than trusting the extension.
+///
+/// History files are always named `*.png`, but `input_path` holds the client's
+/// original bytes verbatim (often WebP or JPEG from manga readers), and
+/// `image::open` would pick the PNG decoder from the name and fail. Allocation
+/// limits are lifted too: upscaled pages are routinely tall enough to exceed the
+/// crate's default 512 MiB decode budget.
+fn open_sniffed(path: &Path) -> Option<image::DynamicImage> {
+    let mut reader = image::ImageReader::open(path).ok()?.with_guessed_format().ok()?;
+    reader.no_limits();
+    match reader.decode() {
+        Ok(img) => Some(img),
+        Err(e) => {
+            eprintln!("[history] cannot decode {}: {e}", path.display());
+            None
+        }
+    }
 }
 
 /// Paste `src` onto `dst` at (x, y).
@@ -639,5 +671,44 @@ mod tests {
         assert_eq!(freed, 100);
         assert_eq!(files, 2);
         assert_eq!(h.total_bytes(), 0);
+    }
+
+    #[test]
+    fn build_comparison_decodes_non_png_bytes_behind_png_extension() {
+        let fx = Fixture::new();
+        let mut h = RequestHistory::new(50);
+        h.set_dir_for_tests(fx.base.join("session"));
+
+        // Client sends a WebP page; the server stores the original bytes under
+        // a `.png` name. The upscaled output is a real PNG.
+        let mut webp = Vec::new();
+        image::RgbImage::from_pixel(4, 3, Rgb([200u8, 10, 10]))
+            .write_to(&mut std::io::Cursor::new(&mut webp), image::ImageFormat::WebP)
+            .expect("encode webp");
+        let mut png = Vec::new();
+        image::RgbImage::from_pixel(8, 6, Rgb([10u8, 200, 10]))
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .expect("encode png");
+
+        let rec = h.add(
+            &webp,
+            &png,
+            "test-model",
+            2,
+            0,
+            1,
+            None,
+            None,
+            RequestSource::Single,
+            None,
+            None,
+        );
+        assert!(rec.input_path.extension().is_some_and(|e| e == "png"));
+
+        let out = build_comparison(&rec).expect("comparison built from sniffed formats");
+        let composed = image::open(&out).expect("comparison is a readable PNG");
+        // before(4) + after(8) + 3 gaps(24)
+        assert_eq!(composed.width(), 4 + 8 + 24 * 3);
+        assert!(composed.height() >= 6 + 56 + 24 * 2);
     }
 }

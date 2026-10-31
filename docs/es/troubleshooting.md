@@ -46,7 +46,7 @@ URL. Revisa **Errors** para detectar reparaciones ausentes o fallidas. En cargas
 directas, el lector se encarga de decodificar. Consulta [Configuración](configuration.md).
 
 Las etiquetas de comparación requieren una fuente TrueType disponible, como
-`C:\Windows\Fonts\arial.ttf`. Sin una fuente, la imagen comparativa no tiene etiquetas.
+`C:\Windows\Fonts\arial.ttf` en Windows o DejaVu Sans, Liberation Sans o Noto Sans en Linux. Sin una fuente, la imagen comparativa no tiene etiquetas.
 
 ## Fallan la instalación o las actualizaciones
 
