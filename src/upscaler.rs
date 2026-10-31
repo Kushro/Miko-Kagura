@@ -331,11 +331,16 @@ impl Upscaler {
                 }
             }
 
-            // Normalize each input to a clean 8-bit RGB/RGBA PNG.
+            // Normalize each input to a clean 8-bit RGB/RGBA PNG. Inputs that
+            // already are one are written as-is, skipping a decode and encode.
             let prepared: Vec<Result<(), String>> = inputs
                 .iter()
                 .enumerate()
                 .map(|(i, bytes)| {
+                    if is_plain_png(bytes) {
+                        return std::fs::write(in_path(i), bytes)
+                            .map_err(|e| format!("Could not write input image: {e}"));
+                    }
                     let img = image::load_from_memory(bytes)
                         .map_err(|e| format!("Could not decode input image: {e}"))?;
                     to_rgb_or_rgba(img)
@@ -625,23 +630,48 @@ fn to_rgb_or_rgba(img: DynamicImage) -> DynamicImage {
     }
 }
 
+/// Width and height read from the image header, without decoding pixels.
+/// `(0, 0)` if the bytes aren't a recognised image.
+pub fn image_dimensions(data: &[u8]) -> (u32, u32) {
+    image::ImageReader::new(Cursor::new(data))
+        .with_guessed_format()
+        .ok()
+        .and_then(|r| r.into_dimensions().ok())
+        .unwrap_or((0, 0))
+}
+
+/// Whether `data` is a PNG that is already 8-bit RGB or RGBA — the form the
+/// engines and Android's BitmapFactory both read as-is. Checks only the
+/// signature and the IHDR chunk (bit depth at byte 24, colour type at 25).
+pub fn is_plain_png(data: &[u8]) -> bool {
+    data.len() > 25
+        && data.starts_with(b"\x89PNG\r\n\x1a\n")
+        && &data[12..16] == b"IHDR"
+        && data[24] == 8
+        && matches!(data[25], 2 | 6)
+}
+
 /// Re-encode PNG bytes as a clean 8-bit RGB/RGBA PNG.
 ///
 /// NCNN binaries can emit PNG variants (16-bit, palette, grayscale) that
 /// Android's BitmapFactory refuses to decode. Round-tripping through the `image`
-/// crate guarantees a widely-decodable 8-bit PNG. Falls back to the raw bytes if
-/// the re-encode fails for any reason.
-pub fn normalize_png_bytes(data: &[u8]) -> Vec<u8> {
-    match image::load_from_memory(data) {
+/// crate guarantees a widely-decodable 8-bit PNG. Bytes that already are one
+/// (the usual engine output) are returned untouched, and so are bytes the
+/// re-encode fails on.
+pub fn normalize_png_bytes(data: Vec<u8>) -> Vec<u8> {
+    if is_plain_png(&data) {
+        return data;
+    }
+    match image::load_from_memory(&data) {
         Ok(img) => {
             let normalized = to_rgb_or_rgba(img);
             let mut buf = Cursor::new(Vec::new());
             match normalized.write_to(&mut buf, ImageFormat::Png) {
                 Ok(()) => buf.into_inner(),
-                Err(_) => data.to_vec(),
+                Err(_) => data,
             }
         }
-        Err(_) => data.to_vec(),
+        Err(_) => data,
     }
 }
 
@@ -665,6 +695,11 @@ pub const WEBP_MAX_DIMENSION: u32 = 16383;
 /// small reduction and effectively supersampling, so detail is preserved.
 pub fn enforce_webp_limit(data: &[u8], limit: u32) -> Option<(Vec<u8>, (u32, u32, u32, u32))> {
     let limit = limit.clamp(1, WEBP_MAX_DIMENSION);
+    // The header is enough to rule out the common case without decoding.
+    let (w, h) = image_dimensions(data);
+    if w > 0 && w.max(h) <= limit {
+        return None;
+    }
     let img = image::load_from_memory(data).ok()?;
     let (w, h) = (img.width(), img.height());
     if w.max(h) <= limit {
@@ -697,4 +732,60 @@ fn make_temp_dir() -> Result<PathBuf, String> {
     ));
     std::fs::create_dir_all(&dir).map_err(|e| format!("Could not create temp dir: {e}"))?;
     Ok(dir)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn encode(img: DynamicImage, format: ImageFormat) -> Vec<u8> {
+        let mut buf = Cursor::new(Vec::new());
+        img.write_to(&mut buf, format).unwrap();
+        buf.into_inner()
+    }
+
+    fn rgb(w: u32, h: u32) -> DynamicImage {
+        DynamicImage::ImageRgb8(image::RgbImage::new(w, h))
+    }
+
+    #[test]
+    fn only_8bit_rgb_and_rgba_pngs_count_as_plain() {
+        assert!(is_plain_png(&encode(rgb(4, 3), ImageFormat::Png)));
+        let rgba = DynamicImage::ImageRgba8(image::RgbaImage::new(4, 3));
+        assert!(is_plain_png(&encode(rgba, ImageFormat::Png)));
+
+        let gray = DynamicImage::ImageLuma8(image::GrayImage::new(4, 3));
+        assert!(!is_plain_png(&encode(gray, ImageFormat::Png)));
+        let deep = DynamicImage::ImageRgb16(image::ImageBuffer::new(4, 3));
+        assert!(!is_plain_png(&encode(deep, ImageFormat::Png)));
+        assert!(!is_plain_png(&encode(rgb(4, 3), ImageFormat::Jpeg)));
+        assert!(!is_plain_png(b"\x89PNG"));
+    }
+
+    #[test]
+    fn normalizing_keeps_plain_pngs_and_converts_the_rest() {
+        let plain = encode(rgb(4, 3), ImageFormat::Png);
+        assert_eq!(normalize_png_bytes(plain.clone()), plain);
+
+        let deep = DynamicImage::ImageRgb16(image::ImageBuffer::new(4, 3));
+        let converted = normalize_png_bytes(encode(deep, ImageFormat::Png));
+        assert!(is_plain_png(&converted));
+        assert_eq!(image_dimensions(&converted), (4, 3));
+    }
+
+    #[test]
+    fn dimensions_come_from_the_header() {
+        assert_eq!(image_dimensions(&encode(rgb(7, 5), ImageFormat::Png)), (7, 5));
+        assert_eq!(image_dimensions(&encode(rgb(7, 5), ImageFormat::Jpeg)), (7, 5));
+        assert_eq!(image_dimensions(b"not an image"), (0, 0));
+    }
+
+    #[test]
+    fn webp_clamp_only_resizes_oversized_images() {
+        let png = encode(rgb(40, 10), ImageFormat::Png);
+        assert!(enforce_webp_limit(&png, 40).is_none());
+        let (bytes, dims) = enforce_webp_limit(&png, 20).unwrap();
+        assert_eq!(dims, (40, 10, 20, 5));
+        assert_eq!(image_dimensions(&bytes), (20, 5));
+    }
 }
