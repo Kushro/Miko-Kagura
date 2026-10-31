@@ -53,12 +53,16 @@ no verifican por sí solas la combinación de motor y controlador instalada.
 El servidor axum se ejecuta en un hilo dedicado con un runtime Tokio. La ventana
 Dioxus ocupa el hilo principal. Ambos comparten `Arc<AppState>` y un canal
 Tokio `broadcast` con mensajes `ServerEvent` para actualizar el panel.
-Los ejecutables NCNN realizan la inferencia en subprocesos.
+Los ejecutables NCNN realizan la inferencia en subprocesos. Un único hilo de
+cola de GPU los ejecuta de a uno y agrupa las imágenes en espera con los mismos
+ajustes en una ejecución en modo carpeta, así Vulkan y el modelo se cargan una
+vez por grupo.
 
 | Código | Responsabilidad |
 | --- | --- |
 | `src/config.rs` | Valores iniciales y registro de modelos |
 | `src/upscaler.rs` | Detección de motores, subprocesos y GPU |
+| `src/gpu_queue.rs` | Ejecuciones del motor serializadas y agrupadas |
 | `src/server.rs` | Rutas HTTP, procesamiento y estado compartido |
 | `src/settings.rs` | Preferencias JSON |
 | `src/history.rs`, `src/cache.rs` | Comparaciones, capturas y temporales |

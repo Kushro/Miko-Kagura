@@ -270,8 +270,31 @@ impl Upscaler {
 
     // ── Processing ────────────────────────────────────────────────────
 
+    /// Settings that decide how the engine is invoked. Jobs with equal keys can
+    /// share one engine run.
+    pub fn engine_key(&self) -> (PathBuf, i32, String, i32, i32, String) {
+        (
+            self.binary_dir.clone(),
+            self.gpu_id,
+            self.current_model_name.clone(),
+            self.current_scale,
+            self.current_noise,
+            self.gpu_vendor.clone(),
+        )
+    }
+
     /// Process image bytes and return upscaled PNG bytes.
     pub fn process(&self, image_bytes: &[u8]) -> Result<Vec<u8>, String> {
+        self.process_batch(&[image_bytes])?
+            .pop()
+            .unwrap_or_else(|| Err("Upscaler produced no output file".to_string()))
+    }
+
+    /// Process several images in a single engine run, so Vulkan and the model
+    /// are initialised once for all of them. Returns one result per input, in
+    /// order; an input that can't be decoded fails on its own. The outer `Err`
+    /// means the engine run itself failed, which affects every input.
+    pub fn process_batch(&self, inputs: &[&[u8]]) -> Result<Vec<Result<Vec<u8>, String>>, String> {
         let config = self
             .current_config
             .as_ref()
@@ -287,24 +310,50 @@ impl Upscaler {
             })
         })?;
 
-        // Unique temp working directory.
+        // Unique temp working directory. A single image uses the engine's file
+        // mode; several use directory mode, which pipelines load/process/save.
         let tmpdir = make_temp_dir()?;
-        let in_path = tmpdir.join("input.png");
-        let out_path = tmpdir.join("output.png");
+        let dir_mode = inputs.len() > 1;
+        let (in_target, out_target) = if dir_mode {
+            (tmpdir.join("in"), tmpdir.join("out"))
+        } else {
+            (tmpdir.join("input.png"), tmpdir.join("output.png"))
+        };
+        let file_name = |i: usize| format!("{i:04}.png");
+        let in_path = |i: usize| if dir_mode { in_target.join(file_name(i)) } else { in_target.clone() };
+        let out_path = |i: usize| if dir_mode { out_target.join(file_name(i)) } else { out_target.clone() };
 
-        let result = (|| -> Result<Vec<u8>, String> {
-            // Normalize input to a clean 8-bit RGB/RGBA PNG.
-            let img = image::load_from_memory(image_bytes)
-                .map_err(|e| format!("Could not decode input image: {e}"))?;
-            let normalized = to_rgb_or_rgba(img);
-            normalized
-                .save_with_format(&in_path, ImageFormat::Png)
-                .map_err(|e| format!("Could not write input image: {e}"))?;
+        let result = (|| -> Result<Vec<Result<Vec<u8>, String>>, String> {
+            if dir_mode {
+                for dir in [&in_target, &out_target] {
+                    std::fs::create_dir_all(dir)
+                        .map_err(|e| format!("Could not create temp dir: {e}"))?;
+                }
+            }
+
+            // Normalize each input to a clean 8-bit RGB/RGBA PNG.
+            let prepared: Vec<Result<(), String>> = inputs
+                .iter()
+                .enumerate()
+                .map(|(i, bytes)| {
+                    let img = image::load_from_memory(bytes)
+                        .map_err(|e| format!("Could not decode input image: {e}"))?;
+                    to_rgb_or_rgba(img)
+                        .save_with_format(in_path(i), ImageFormat::Png)
+                        .map_err(|e| format!("Could not write input image: {e}"))
+                })
+                .collect();
+            if prepared.iter().all(Result::is_err) {
+                return Ok(prepared.into_iter().map(|r| r.map(|()| Vec::new())).collect());
+            }
 
             let mut cmd = new_command(&binary);
-            cmd.arg("-i").arg(&in_path);
-            cmd.arg("-o").arg(&out_path);
+            cmd.arg("-i").arg(&in_target);
+            cmd.arg("-o").arg(&out_target);
             cmd.arg("-s").arg(self.current_scale.to_string());
+            if dir_mode {
+                cmd.arg("-f").arg("png");
+            }
 
             // Noise / model-name argument.
             match config.noise_style {
@@ -364,14 +413,20 @@ impl Upscaler {
                 ));
             }
 
-            if !out_path.exists() {
-                return Err("Upscaler produced no output file".to_string());
-            }
-
             // Return the raw NCNN output. The caller (server.rs) applies
             // normalize_png_bytes() and/or oxipng compression as configured.
-            std::fs::read(&out_path)
-                .map_err(|e| format!("Could not read output image: {e}"))
+            Ok(prepared
+                .into_iter()
+                .enumerate()
+                .map(|(i, prep)| {
+                    prep?;
+                    let out = out_path(i);
+                    if !out.exists() {
+                        return Err("Upscaler produced no output file".to_string());
+                    }
+                    std::fs::read(&out).map_err(|e| format!("Could not read output image: {e}"))
+                })
+                .collect())
         })();
 
         // Always clean up the temp dir.

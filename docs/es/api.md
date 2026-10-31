@@ -64,4 +64,8 @@ en lugar de asumir que todo el lote fue correcto.
 
 La ruta de lotes de imágenes admite hasta 32 veces el límite configurado para
 una solicitud individual, para alojar varias imágenes base64. Los lotes por URL
-descargan en paralelo; el servidor coordina el acceso al motor.
+descargan en paralelo y encolan cada imagen para escalar en cuanto llega. El
+servidor ejecuta el motor de a un trabajo por vez y procesa en una sola
+ejecución las imágenes en espera con los mismos ajustes, así que las solicitudes
+concurrentes cuestan menos que las secuenciales. `X-Process-Time-Ms` y `time_ms`
+indican el tiempo de motor atribuido a cada imagen, sin contar la espera en cola.

@@ -53,12 +53,15 @@ verify the installed engine/driver combination.
 The axum server runs on a dedicated thread with a Tokio runtime. The Dioxus
 window owns the main thread. Both share `Arc<AppState>` and use a Tokio
 `broadcast` channel of `ServerEvent` messages to update the dashboard.
-NCNN executables perform inference in subprocesses.
+NCNN executables perform inference in subprocesses. A single GPU queue thread
+runs them one at a time and groups queued images with the same settings into
+one directory-mode run, so Vulkan and the model load once per group.
 
 | Source | Responsibility |
 | --- | --- |
 | `src/config.rs` | Server defaults and supported model registry |
 | `src/upscaler.rs` | Engine discovery, subprocesses and GPU detection |
+| `src/gpu_queue.rs` | Serialized and batched engine runs |
 | `src/server.rs` | HTTP routes, request processing and shared state |
 | `src/settings.rs` | JSON preferences |
 | `src/history.rs`, `src/cache.rs` | Comparisons, captures and temporary storage |
