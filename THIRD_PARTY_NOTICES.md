@@ -19,6 +19,15 @@ extensions when reusing their code. The Apache-licensed portions retain their
 own permissions, including commercial rights; Miko-Kagura's noncommercial
 license applies only where Octavio holds the relevant rights.
 
+## Statically linked libwebp
+
+The `miko-kagura` executable statically links [libwebp](https://chromium.googlesource.com/webm/libwebp)
+1.3.1, built from the sources bundled in the `libwebp-sys` crate, to encode
+WebP output. Copyright (c) 2010, Google Inc. libwebp is distributed under the
+BSD 3-Clause license with an additional patent grant; the texts are in
+[`LICENSES/libwebp-BSD-3-Clause.txt`](LICENSES/libwebp-BSD-3-Clause.txt) and
+[`LICENSES/libwebp-PATENTS.txt`](LICENSES/libwebp-PATENTS.txt).
+
 ## Distributed executable packages and model weights
 
 The `binaries/` directory is not tracked in Git. **Full release packages include

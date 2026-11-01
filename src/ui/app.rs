@@ -69,6 +69,9 @@ const COMPRESS_LEVELS: &[(u8, &str)] = &[
     (6, "Max"),
 ];
 
+/// WebP output quality presets: (quality, label).
+const WEBP_QUALITIES: &[(u8, &str)] = &[(75, "75"), (85, "85"), (90, "90"), (95, "95")];
+
 /// Session-history auto-clean budget slider (Storage tab), in MB.
 const STORAGE_LIMIT_MIN_MB: u64 = 256;
 const STORAGE_LIMIT_MAX_MB: u64 = 4608;
@@ -353,6 +356,10 @@ pub fn App() -> Element {
     let mut compress_level =
         use_signal(|| app_state().compress_level.load(Ordering::Relaxed));
 
+    // Output format state — mirrors the AtomicBool/AtomicU8 in AppState.
+    let mut output_webp = use_signal(|| app_state().output_webp.load(Ordering::Relaxed));
+    let mut webp_quality = use_signal(|| app_state().webp_quality.load(Ordering::Relaxed));
+
     // Advanced state.
     let mut normalize_png =
         use_signal(|| app_state().normalize_png.load(Ordering::Relaxed));
@@ -630,6 +637,91 @@ pub fn App() -> Element {
                                                 compress_level.set(lvl);
                                                 app_state().emit(ServerEvent::Info(
                                                     format!("Compression level: {name} (preset {lvl})")
+                                                ));
+                                                save_settings();
+                                            },
+                                            "{name}"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ── Output format ─────────────────────────────────
+                    div { class: "h-px bg-white/10 my-4" }
+
+                    p {
+                        class: "text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2",
+                        "Output Format"
+                    }
+
+                    // WebP toggle
+                    {
+                        let enabled = *output_webp.read();
+                        let (toggle_cls, label) = if enabled {
+                            (
+                                "bg-green-500/20 text-green-300 border-green-500/30 hover:bg-green-500/30",
+                                "WebP — lossy, much smaller",
+                            )
+                        } else {
+                            (
+                                "bg-white/5 text-slate-400 border-white/10 hover:bg-white/10 hover:text-white",
+                                "PNG — lossless",
+                            )
+                        };
+                        rsx! {
+                            button {
+                                class: "w-full flex items-center justify-between text-sm px-3 py-2 rounded-lg border transition-all duration-150 cursor-pointer {toggle_cls}",
+                                title: "Send lossy WebP instead of PNG: several times fewer bytes over the network.\nCompression and PNG normalisation don't apply to WebP.",
+                                onclick: move |_| {
+                                    let new_val = !*output_webp.read();
+                                    app_state().output_webp.store(new_val, Ordering::Relaxed);
+                                    output_webp.set(new_val);
+                                    app_state().emit(ServerEvent::Info(format!(
+                                        "Output format: {}", if new_val { "WebP" } else { "PNG" }
+                                    )));
+                                    save_settings();
+                                },
+                                span { class: "inline-flex items-center gap-2",
+                                    i { class: "fa-solid fa-file-image text-xs" }
+                                    "{label}"
+                                }
+                                span {
+                                    class: if enabled {
+                                        "text-xs font-semibold px-2 py-0.5 rounded-full bg-green-500 text-white"
+                                    } else {
+                                        "text-xs font-semibold px-2 py-0.5 rounded-full bg-white/10 text-slate-500"
+                                    },
+                                    if enabled { "WEBP" } else { "PNG" }
+                                }
+                            }
+                        }
+                    }
+
+                    // Quality selector — visible only for WebP
+                    if *output_webp.read() {
+                        div { class: "flex gap-1.5 mt-2",
+                            for (q, name) in WEBP_QUALITIES {
+                                {
+                                    let q = *q;
+                                    let name = *name;
+                                    let active = *webp_quality.read() == q;
+                                    let cls = if active {
+                                        "bg-indigo-500/20 text-indigo-300 border-indigo-500/30"
+                                    } else {
+                                        "bg-white/5 text-slate-400 border-white/10 hover:bg-white/10 hover:text-white"
+                                    };
+                                    rsx! {
+                                        button {
+                                            key: "{q}",
+                                            class: "flex-1 text-xs px-2 py-1.5 rounded-lg border transition-all cursor-pointer {cls}",
+                                            title: "WebP quality {q}",
+                                            onclick: move |_| {
+                                                app_state().webp_quality.store(q, Ordering::Relaxed);
+                                                webp_quality.set(q);
+                                                app_state().emit(ServerEvent::Info(
+                                                    format!("WebP quality: {name}")
                                                 ));
                                                 save_settings();
                                             },

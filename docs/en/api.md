@@ -13,14 +13,18 @@ the HTTP API has no authentication.
 | GET | `/health` | None | `status`, `upscaler_ready` |
 | GET | `/status` | None | Model, scale, noise, GPU, counters and engine path |
 | POST | `/model` | JSON: `model`, optional `scale` (2), `noise` (0) | Selected model and `loaded` |
-| POST | `/upscale` | Raw image bytes | PNG bytes |
-| POST | `/upscale/url` | JSON: `url`, optional `headers` map | PNG bytes |
+| POST | `/upscale` | Raw image bytes | PNG or WebP bytes |
+| POST | `/upscale/url` | JSON: `url`, optional `headers` map | PNG or WebP bytes |
 | POST | `/upscale/batch` | JSON: `images` array of base64 images | JSON batch results |
 | POST | `/upscale/batch/url` | JSON: `urls`, optional shared `headers` map | JSON batch results |
 
 `/status` includes `model`, `model_display_name`, `scale`, `noise`, `gpu`,
 `uptime_seconds`, `requests_processed`, `bytes_processed`, `binary_dir`, and
 `binaries_ready`. Model-related fields can be null before a model is loaded.
+
+Images come back as PNG by default, or as lossy WebP when the
+[output format](configuration.md#output-format) is set to WebP. Check
+`Content-Type` (`image/png` or `image/webp`), or decode by content.
 
 ## Send an image
 
@@ -43,14 +47,19 @@ Invoke-WebRequest -Method Post -Uri 'http://192.168.1.100:8282/upscale/url' -Con
 ```
 
 Replace the example URL with an accessible image. Client-provided headers take
-precedence over plugin defaults. Preserve source URL fragments for the
+precedence over plugin defaults. The server downloads at most four images at a
+time from each host and retries timeouts, connection errors and HTTP 408/429/5xx
+up to two more times, waiting as `Retry-After` asks (up to 10 seconds) or with
+growing randomized delays. Cloudflare challenges and other blocks fail at once,
+since asking again won't clear them. Preserve source URL fragments for the
 [repair plugins](configuration.md#source-plugins).
 
 ## Read batch results
 
 A batch response has `batch_id` and a `results` array. Each result includes
-`index` and `success`. A successful result includes base64 PNG `image`, `width`,
-`height`, and `time_ms`; a failed result includes `error`. Inspect each entry
+`index` and `success`. A successful result includes base64 `image`, its
+`format` (`png` or `webp`), `width`, `height`, and `time_ms`; a failed result
+includes `error`. Inspect each entry
 rather than assuming the entire batch succeeded.
 
 ```json

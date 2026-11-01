@@ -19,6 +19,7 @@ use tokio::sync::broadcast;
 mod cache;
 mod clamp;
 mod config;
+mod fetch;
 mod gpu_queue;
 mod history;
 mod plugins;
@@ -77,6 +78,7 @@ fn main() {
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
              (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         )
+        .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(30))
         .build()
         .unwrap_or_default();
@@ -102,6 +104,8 @@ fn main() {
         server_addr: server_addr.clone(),
         compress_enabled: AtomicBool::new(cfg.compress_enabled),
         compress_level: AtomicU8::new(cfg.compress_level),
+        output_webp: AtomicBool::new(cfg.output_webp),
+        webp_quality: AtomicU8::new(cfg.webp_quality),
         normalize_png: AtomicBool::new(cfg.normalize_png),
         webp_compat: AtomicBool::new(cfg.webp_compat),
         webp_max_dimension: AtomicU32::new(cfg.webp_max_dimension),
@@ -110,6 +114,7 @@ fn main() {
         device_dpi: AtomicU32::new(persisted.device_dpi),
         clamp_headroom_pct: AtomicU32::new(persisted.clamp_headroom_pct),
         http_client,
+        host_limiter: Default::default(),
         gpu: gpu_queue::GpuQueue::spawn(),
         batch_counter: AtomicU64::new(1),
         enabled_plugins: Mutex::new(enabled_plugins),
@@ -221,6 +226,15 @@ fn parse_args_over(saved: settings::PersistedSettings) -> ServerConfig {
                     cfg.compress_level = p;
                 }
             }
+            "--webp" => {
+                cfg.output_webp = true;
+                consumed_value = false; // flag, no value
+            }
+            "--webp-quality" => {
+                if let Some(p) = value.and_then(|v| v.parse::<u8>().ok()) {
+                    cfg.webp_quality = p.clamp(1, 100);
+                }
+            }
             "--no-normalize" => {
                 cfg.normalize_png = false;
                 consumed_value = false; // flag, no value
@@ -262,14 +276,16 @@ fn print_help() {
          \x20                      also changeable from the dashboard's Settings tab)\n\
          \x20 --max-size <MB>      Max request body size in MB (default: 20)\n\
          \x20 --gpu-id <N>         GPU device index (-1 = auto)\n\
+         \x20 --webp               Send lossy WebP instead of PNG\n\
+         \x20 --webp-quality <N>   WebP quality 1-100 (default: 90)\n\
          \x20 --no-normalize       Disable PNG normalisation (send raw NCNN output)\n\
          \x20 --no-webp-compat     Disable WebP output clamping\n\
          \x20 --webp-max-dimension <N>  Per-dimension clamp in px (default: 16383)\n\n\
          Models: waifu2x, waifu2x-upconv7, waifu2x-photo,\n\
          \x20       realcugan-se, realcugan-pro, realcugan-nose,\n\
          \x20       realesrgan-anime, realesrgan-photo\n\n\
-         Dashboard settings (model, clamp, compression, plugins, theme) are saved\n\
-         automatically to:\n\
+         Dashboard settings (model, clamp, compression, output format, plugins,\n\
+         theme) are saved automatically to:\n\
          \x20 {}\n\
          and reloaded at startup. The flags above override the saved values for\n\
          one run without changing the file.",
