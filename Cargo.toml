@@ -22,6 +22,9 @@ ab_glyph = "0.2"
 # PNG lossless compression
 oxipng = "9"
 
+# Lossy WebP output (statically links libwebp)
+webp = { version = "0.3.1", default-features = false }
+
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

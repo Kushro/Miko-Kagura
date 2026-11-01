@@ -47,6 +47,8 @@ pub struct PersistedSettings {
     pub noise: i32,
     pub compress_enabled: bool,
     pub compress_level: u8,
+    pub output_webp: bool,
+    pub webp_quality: u8,
     pub normalize_png: bool,
     pub webp_compat: bool,
     pub webp_max_dimension: u32,
@@ -74,6 +76,8 @@ impl Default for PersistedSettings {
             noise: cfg.default_noise,
             compress_enabled: cfg.compress_enabled,
             compress_level: cfg.compress_level,
+            output_webp: cfg.output_webp,
+            webp_quality: cfg.webp_quality,
             normalize_png: cfg.normalize_png,
             webp_compat: cfg.webp_compat,
             webp_max_dimension: cfg.webp_max_dimension,
@@ -100,6 +104,8 @@ impl PersistedSettings {
         cfg.default_noise = self.noise;
         cfg.compress_enabled = self.compress_enabled;
         cfg.compress_level = self.compress_level;
+        cfg.output_webp = self.output_webp;
+        cfg.webp_quality = self.webp_quality.clamp(1, 100);
         cfg.normalize_png = self.normalize_png;
         cfg.webp_compat = self.webp_compat;
         // In device mode the pixel value is a derived quantity, so recompute it
@@ -261,6 +267,8 @@ pub fn capture(state: &AppState) -> PersistedSettings {
         noise,
         compress_enabled: state.compress_enabled.load(Ordering::Relaxed),
         compress_level: state.compress_level.load(Ordering::Relaxed),
+        output_webp: state.output_webp.load(Ordering::Relaxed),
+        webp_quality: state.webp_quality.load(Ordering::Relaxed),
         normalize_png: state.normalize_png.load(Ordering::Relaxed),
         webp_compat: state.webp_compat.load(Ordering::Relaxed),
         webp_max_dimension: state.webp_max_dimension.load(Ordering::Relaxed),
@@ -312,6 +320,8 @@ mod tests {
             noise: 3,
             compress_enabled: true,
             compress_level: 6,
+            output_webp: true,
+            webp_quality: 85,
             normalize_png: false,
             webp_compat: true,
             // Device mode: the stored pixel value is whatever the calculator
@@ -342,6 +352,8 @@ mod tests {
         assert_eq!(loaded.noise, original.noise);
         assert_eq!(loaded.compress_enabled, original.compress_enabled);
         assert_eq!(loaded.compress_level, original.compress_level);
+        assert_eq!(loaded.output_webp, original.output_webp);
+        assert_eq!(loaded.webp_quality, original.webp_quality);
         assert_eq!(loaded.normalize_png, original.normalize_png);
         assert_eq!(loaded.webp_compat, original.webp_compat);
         assert_eq!(loaded.webp_max_dimension, original.webp_max_dimension);
@@ -422,6 +434,8 @@ mod tests {
         assert_eq!(cfg.default_model, "waifu2x");
         assert_eq!(cfg.default_noise, 3);
         assert_eq!(cfg.compress_level, 6);
+        assert!(cfg.output_webp);
+        assert_eq!(cfg.webp_quality, 85);
         assert!(!cfg.normalize_png);
         assert_eq!(cfg.webp_max_dimension, saved.webp_max_dimension);
         assert_eq!(cfg.binary_dir, "D:/tools/ncnn");

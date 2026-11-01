@@ -693,7 +693,7 @@ pub const WEBP_MAX_DIMENSION: u32 = 16383;
 /// Quality note: the model already ran on the full-resolution input; we only
 /// trim the excess beyond `limit`. For images just over the limit this is a
 /// small reduction and effectively supersampling, so detail is preserved.
-pub fn enforce_webp_limit(data: &[u8], limit: u32) -> Option<(Vec<u8>, (u32, u32, u32, u32))> {
+pub fn enforce_webp_limit(data: &[u8], limit: u32) -> Option<(Vec<u8>, Resize)> {
     let limit = limit.clamp(1, WEBP_MAX_DIMENSION);
     // The header is enough to rule out the common case without decoding.
     let (w, h) = image_dimensions(data);
@@ -701,6 +701,19 @@ pub fn enforce_webp_limit(data: &[u8], limit: u32) -> Option<(Vec<u8>, (u32, u32
         return None;
     }
     let img = image::load_from_memory(data).ok()?;
+    let (resized, dims) = fit_within(&img, limit)?;
+    let clean = to_rgb_or_rgba(resized);
+    let mut buf = Cursor::new(Vec::new());
+    clean.write_to(&mut buf, ImageFormat::Png).ok()?;
+    Some((buf.into_inner(), dims))
+}
+
+/// A resize as `(from_w, from_h, to_w, to_h)`, for logging.
+pub type Resize = (u32, u32, u32, u32);
+
+/// Proportionally downscale (Lanczos3) `img` so neither axis exceeds `limit`,
+/// returning it with `(from_w, from_h, to_w, to_h)`; `None` if it already fits.
+fn fit_within(img: &DynamicImage, limit: u32) -> Option<(DynamicImage, Resize)> {
     let (w, h) = (img.width(), img.height());
     if w.max(h) <= limit {
         return None;
@@ -712,10 +725,34 @@ pub fn enforce_webp_limit(data: &[u8], limit: u32) -> Option<(Vec<u8>, (u32, u32
     let nh = ((h as f64 * scale).floor() as u32).clamp(1, limit);
 
     let resized = img.resize_exact(nw, nh, image::imageops::FilterType::Lanczos3);
-    let clean = to_rgb_or_rgba(resized);
-    let mut buf = Cursor::new(Vec::new());
-    clean.write_to(&mut buf, ImageFormat::Png).ok()?;
-    Some((buf.into_inner(), (w, h, nw, nh)))
+    Some((resized, (w, h, nw, nh)))
+}
+
+/// Encode an image as lossy WebP at `quality` (1–100), first downscaling it
+/// to fit `limit` (itself capped at [`WEBP_MAX_DIMENSION`], which WebP can't
+/// exceed). Also returns the resize as `(from_w, from_h, to_w, to_h)`, if any.
+pub fn encode_webp(
+    data: &[u8],
+    limit: u32,
+    quality: u8,
+) -> Result<(Vec<u8>, Option<Resize>), String> {
+    let limit = limit.clamp(1, WEBP_MAX_DIMENSION);
+    let img = image::load_from_memory(data).map_err(|e| format!("Could not decode image: {e}"))?;
+    let (img, resized) = match fit_within(&img, limit) {
+        Some((img, dims)) => (img, Some(dims)),
+        None => (img, None),
+    };
+    let quality = quality.clamp(1, 100) as f32;
+    let encoded = match to_rgb_or_rgba(img) {
+        DynamicImage::ImageRgba8(buf) => webp::Encoder::from_rgba(&buf, buf.width(), buf.height())
+            .encode_simple(false, quality),
+        other => {
+            let buf = other.to_rgb8();
+            webp::Encoder::from_rgb(&buf, buf.width(), buf.height()).encode_simple(false, quality)
+        }
+    }
+    .map_err(|e| format!("WebP encoding failed: {e:?}"))?;
+    Ok((encoded.to_vec(), resized))
 }
 
 /// Create a unique temporary working directory.
@@ -778,6 +815,25 @@ mod tests {
         assert_eq!(image_dimensions(&encode(rgb(7, 5), ImageFormat::Png)), (7, 5));
         assert_eq!(image_dimensions(&encode(rgb(7, 5), ImageFormat::Jpeg)), (7, 5));
         assert_eq!(image_dimensions(b"not an image"), (0, 0));
+    }
+
+    #[test]
+    fn webp_output_is_lossy_webp_clamped_to_the_limit() {
+        let png = encode(rgb(40, 10), ImageFormat::Png);
+        let (webp, resized) = encode_webp(&png, 100, 90).unwrap();
+        assert_eq!(image::guess_format(&webp).unwrap(), ImageFormat::WebP);
+        assert_eq!(image_dimensions(&webp), (40, 10));
+        assert!(resized.is_none());
+
+        let (webp, resized) = encode_webp(&png, 20, 90).unwrap();
+        assert_eq!(resized, Some((40, 10, 20, 5)));
+        assert_eq!(image_dimensions(&webp), (20, 5));
+
+        let rgba = DynamicImage::ImageRgba8(image::RgbaImage::new(6, 4));
+        let (webp, _) = encode_webp(&encode(rgba, ImageFormat::Png), 100, 90).unwrap();
+        assert!(image::load_from_memory(&webp).unwrap().color().has_alpha());
+
+        assert!(encode_webp(b"not an image", 100, 90).is_err());
     }
 
     #[test]

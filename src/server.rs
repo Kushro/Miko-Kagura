@@ -28,7 +28,10 @@ use crate::config::get_model;
 use crate::fetch::{fetch_with_retry, HostLimiter};
 use crate::gpu_queue::GpuQueue;
 use crate::history::{RequestHistory, RequestRecord, RequestSource};
-use crate::upscaler::{enforce_webp_limit, image_dimensions, normalize_png_bytes, Upscaler};
+use crate::upscaler::{
+    encode_webp, enforce_webp_limit, image_dimensions, normalize_png_bytes, Upscaler,
+    WEBP_MAX_DIMENSION,
+};
 
 /// Server-side counters.
 #[derive(Default, Clone, Copy)]
@@ -64,6 +67,11 @@ pub struct AppState {
     pub compress_enabled: AtomicBool,
     /// oxipng preset level 0 (fast) … 6 (max). Default 2.
     pub compress_level: AtomicU8,
+    /// Send lossy WebP instead of PNG. Several times smaller for the same
+    /// page; normalisation and oxipng then don't apply.
+    pub output_webp: AtomicBool,
+    /// WebP quality 1–100 when `output_webp` is on. Default 90.
+    pub webp_quality: AtomicU8,
     /// Normalize NCNN output to clean 8-bit RGB/RGBA PNG (Android BitmapFactory fix).
     /// Default true — prevents Coil from crashing on exotic PNG sub-formats.
     pub normalize_png: AtomicBool,
@@ -180,6 +188,9 @@ struct BatchItem {
     success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     image: Option<String>,
+    /// `"png"` or `"webp"`, the encoding of `image`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -196,6 +207,7 @@ impl BatchItem {
             index,
             success: true,
             image: Some(BASE64.encode(&o.bytes)),
+            format: Some(o.format.name()),
             error: None,
             width: Some(o.width),
             height: Some(o.height),
@@ -208,6 +220,7 @@ impl BatchItem {
             index,
             success: false,
             image: None,
+            format: None,
             error: Some(msg),
             width: None,
             height: None,
@@ -222,9 +235,33 @@ struct BatchResponse {
     results: Vec<BatchItem>,
 }
 
+/// Encoding of the image sent back to the client.
+#[derive(Clone, Copy)]
+enum OutputFormat {
+    Png,
+    Webp,
+}
+
+impl OutputFormat {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Png => "png",
+            Self::Webp => "webp",
+        }
+    }
+
+    fn content_type(self) -> &'static str {
+        match self {
+            Self::Png => "image/png",
+            Self::Webp => "image/webp",
+        }
+    }
+}
+
 /// Result of upscaling one image, shared by every endpoint.
 struct UpscaleOutcome {
     bytes: Vec<u8>,
+    format: OutputFormat,
     model: String,
     scale: i32,
     noise: i32,
@@ -318,44 +355,16 @@ async fn run_upscale(
     };
     let upscale_ms = upscaled.engine_ms;
 
-    // Clamp and normalisation decode and re-encode the whole upscaled image,
-    // so they run on the blocking pool rather than the async workers.
+    // Encoding decodes and re-encodes the whole upscaled image, so it runs on
+    // the blocking pool rather than the async workers.
     let post_state = state.clone();
-    let (upscaled, webp_ms) =
-        tokio::task::spawn_blocking(move || clamp_and_normalize(&post_state, upscaled.bytes))
-            .await
-            .map_err(|e| {
-                state.emit(ServerEvent::Error(format!("{model}: worker panicked: {e}")));
-                "Worker thread failed".to_string()
-            })?;
-
-    // ── Optional oxipng lossless compression ──────────────────────────
-    let (final_out, compress_ms) = if state.compress_enabled.load(Ordering::Relaxed) {
-        let level = state.compress_level.load(Ordering::Relaxed);
-        let opts = oxipng::Options::from_preset(level);
-        let upscaled_clone = upscaled.clone(); // keep `upscaled` for the fallback path
-        let compress_start = Instant::now();
-        match tokio::task::spawn_blocking(move || {
-            oxipng::optimize_from_memory(&upscaled_clone, &opts)
-        })
+    let encoded = tokio::task::spawn_blocking(move || encode_output(&post_state, upscaled.bytes))
         .await
-        {
-            Ok(Ok(compressed)) => {
-                let cms = compress_start.elapsed().as_millis() as u64;
-                (compressed, Some(cms))
-            }
-            Ok(Err(e)) => {
-                state.emit(ServerEvent::Error(format!("oxipng failed, sending uncompressed: {e}")));
-                (upscaled, None)
-            }
-            Err(e) => {
-                state.emit(ServerEvent::Error(format!("oxipng worker panicked: {e}")));
-                (upscaled, None)
-            }
-        }
-    } else {
-        (upscaled, None)
-    };
+        .map_err(|e| {
+            state.emit(ServerEvent::Error(format!("{model}: worker panicked: {e}")));
+            "Worker thread failed".to_string()
+        })?;
+    let (final_out, compress_ms, webp_ms) = (encoded.bytes, encoded.compress_ms, encoded.webp_ms);
 
     let (width, height) = image_dimensions(&final_out);
 
@@ -377,6 +386,7 @@ async fn run_upscale(
 
     Ok(UpscaleOutcome {
         bytes: final_out,
+        format: encoded.format,
         model,
         scale,
         noise,
@@ -387,7 +397,80 @@ async fn run_upscale(
     })
 }
 
-/// The WebP clamp and PNG normalisation steps of [`run_upscale`]. Returns the
+/// The upscaled image in its final encoding, with step timings.
+struct Encoded {
+    bytes: Vec<u8>,
+    format: OutputFormat,
+    /// Time the WebP-compat clamp spent resizing (PNG output only).
+    webp_ms: Option<u64>,
+    /// Time spent in oxipng, or encoding WebP.
+    compress_ms: Option<u64>,
+}
+
+/// Turn the engine's PNG into what the client receives: lossy WebP when
+/// enabled, otherwise the clamped, normalised and optionally compressed PNG.
+/// A failed WebP encode falls back to PNG.
+fn encode_output(state: &AppState, upscaled: Vec<u8>) -> Encoded {
+    if state.output_webp.load(Ordering::Relaxed) {
+        // WebP can't exceed its container limit, so the clamp always applies;
+        // the configured clamp only when WebP compat is on.
+        let limit = if state.webp_compat.load(Ordering::Relaxed) {
+            state.webp_max_dimension.load(Ordering::Relaxed)
+        } else {
+            WEBP_MAX_DIMENSION
+        };
+        let quality = state.webp_quality.load(Ordering::Relaxed);
+        let start = Instant::now();
+        match encode_webp(&upscaled, limit, quality) {
+            Ok((bytes, resized)) => {
+                if let Some((fw, fh, tw, th)) = resized {
+                    state.emit(ServerEvent::Info(format!(
+                        "WebP output: downscaled {fw}x{fh} → {tw}x{th} (≤{limit}px)"
+                    )));
+                }
+                return Encoded {
+                    bytes,
+                    format: OutputFormat::Webp,
+                    webp_ms: None,
+                    compress_ms: Some(start.elapsed().as_millis() as u64),
+                };
+            }
+            Err(e) => state.emit(ServerEvent::Error(format!("{e} — sending PNG instead"))),
+        }
+    }
+
+    let (upscaled, webp_ms) = clamp_and_normalize(state, upscaled);
+    let (bytes, compress_ms) = compress_png(state, upscaled);
+    Encoded {
+        bytes,
+        format: OutputFormat::Png,
+        webp_ms,
+        compress_ms,
+    }
+}
+
+/// Optional oxipng lossless compression. Falls back to the input on failure.
+fn compress_png(state: &AppState, upscaled: Vec<u8>) -> (Vec<u8>, Option<u64>) {
+    if !state.compress_enabled.load(Ordering::Relaxed) {
+        return (upscaled, None);
+    }
+    let opts = oxipng::Options::from_preset(state.compress_level.load(Ordering::Relaxed));
+    let start = Instant::now();
+    let result = std::panic::catch_unwind(|| oxipng::optimize_from_memory(&upscaled, &opts));
+    match result {
+        Ok(Ok(compressed)) => (compressed, Some(start.elapsed().as_millis() as u64)),
+        Ok(Err(e)) => {
+            state.emit(ServerEvent::Error(format!("oxipng failed, sending uncompressed: {e}")));
+            (upscaled, None)
+        }
+        Err(_) => {
+            state.emit(ServerEvent::Error("oxipng panicked, sending uncompressed".to_string()));
+            (upscaled, None)
+        }
+    }
+}
+
+/// The WebP clamp and PNG normalisation steps of [`encode_output`]. Returns the
 /// image and the clamp's time when it actually resized.
 fn clamp_and_normalize(state: &AppState, upscaled: Vec<u8>) -> (Vec<u8>, Option<u64>) {
     // ── Optional WebP compatibility (clamp to 16383px) ────────────────
@@ -428,7 +511,7 @@ fn clamp_and_normalize(state: &AppState, upscaled: Vec<u8>) -> (Vec<u8>, Option<
 fn binary_response(o: UpscaleOutcome) -> Response {
     let mut builder = Response::builder()
         .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "image/png")
+        .header(header::CONTENT_TYPE, o.format.content_type())
         .header("X-Upscale-Model", &o.model)
         .header("X-Upscale-Scale", o.scale.to_string())
         .header("X-Upscale-Noise", o.noise.to_string())

@@ -6,8 +6,8 @@ Use the dashboard to change image processing without restarting the server.
 
 ## Dashboard controls
 
-The left panel selects the model, scale, noise level, GPU, compression, PNG
-normalization, maximum output dimension, and **Binary Directory**.
+The left panel selects the model, scale, noise level, GPU, compression, output
+format, PNG normalization, maximum output dimension, and **Binary Directory**.
 
 The right panel contains **Requests**, **Plugins**, **Settings**, **Errors**,
 and **Storage** tabs. Select a request to compare the original and upscaled
@@ -41,6 +41,15 @@ Its upper bound is WebP's `16383` pixels per dimension. **Pixels** sets the limi
 directly; **Device** derives it from screen size, pixel density, and zoom headroom.
 Headroom `100%` fits the screen; `200%` retains detail for a 2× zoom.
 
+## Output format
+
+**PNG** (default) is lossless. **WebP** is lossy and several times smaller: a
+1800×2600 upscaled manga page drops from about 10 MB to about 1.4 MB at quality
+`90`, so pages arrive sooner over Wi-Fi and take less space in the reader's
+cache. Choose quality `75`–`95`; `90` keeps line art clean. Compression and PNG
+normalization don't apply to WebP, and WebP output is always clamped to
+`16383` pixels per dimension. Miko decodes either format.
+
 ## Saved preferences and CLI
 
 Preferences are saved as you change them to `%APPDATA%\Miko-Kagura\settings.json`.
@@ -60,6 +69,7 @@ the executable. CLI options override saved settings for that launch.
 | `--gpu-id` | GPU index; `-1` means automatic selection |
 | `--max-size` | Single request body limit in MiB; `20` |
 | `--compress` / `-C`, `--compress-level` | Enable oxipng; preset `0`–`6`, default `2` |
+| `--webp`, `--webp-quality` | Send lossy WebP; quality `1`–`100`, default `90` |
 | `--no-normalize` | Disable PNG normalization |
 | `--no-webp-compat` | Disable output dimension clamping |
 | `--webp-max-dimension` | Maximum output dimension; `16383` |

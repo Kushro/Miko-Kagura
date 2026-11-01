@@ -198,6 +198,10 @@ pub struct ServerConfig {
     pub compress_enabled: bool,
     /// oxipng preset level 0–6 for startup. Default: 2.
     pub compress_level: u8,
+    /// Send lossy WebP instead of PNG. Default: false.
+    pub output_webp: bool,
+    /// WebP quality 1–100 when `output_webp` is on. Default: 90.
+    pub webp_quality: u8,
     /// Normalize NCNN output to clean 8-bit RGB/RGBA PNG before sending.
     /// Prevents `BitmapFactory returned null bitmap` on Android (Coil/BitmapFactory
     /// rejects 16-bit, palette, or grayscale+alpha PNGs that NCNN can emit).
@@ -226,6 +230,8 @@ impl Default for ServerConfig {
             gpu_id: -1, // -1 = auto-select first available GPU
             compress_enabled: false,
             compress_level: 2,
+            output_webp: false,
+            webp_quality: 90,
             normalize_png: true, // on by default — fixes Android BitmapFactory decoding
             webp_compat: true,   // on by default — clamps to WebP's 16383px limit
             webp_max_dimension: crate::upscaler::WEBP_MAX_DIMENSION,
