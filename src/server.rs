@@ -25,6 +25,7 @@ use tokio::sync::broadcast;
 use tower_http::cors::CorsLayer;
 
 use crate::config::get_model;
+use crate::fetch::{fetch_with_retry, HostLimiter};
 use crate::gpu_queue::GpuQueue;
 use crate::history::{RequestHistory, RequestRecord, RequestSource};
 use crate::upscaler::{enforce_webp_limit, image_dimensions, normalize_png_bytes, Upscaler};
@@ -81,6 +82,8 @@ pub struct AppState {
     pub clamp_headroom_pct: AtomicU32,
     /// Shared HTTP client for the URL endpoints (connection-pooled).
     pub http_client: reqwest::Client,
+    /// Caps simultaneous downloads per source host.
+    pub host_limiter: HostLimiter,
     /// Serialises engine runs onto the GPU and batches queued images.
     pub gpu: GpuQueue,
     /// Monotonic id handed to each batch request so its entries can be grouped.
@@ -446,6 +449,8 @@ pub struct DownloadedImage {
 
 /// Download an image, logging (and returning) a clear error on failure. HTTP
 /// 403/503 responses are flagged as likely Cloudflare / anti-bot blocks.
+/// Downloads share a per-host slot limit and retry transient failures (see
+/// [`crate::fetch`]).
 /// `headers` are the manga source's own headers forwarded by the client — applying
 /// them defeats most anti-hotlinking checks; invalid entries are skipped.
 ///
@@ -459,29 +464,32 @@ async fn download_image(
     // A fragment is a client-side marker (tile order, XOR key) and must not be
     // sent to the server — plugins read it from the original URL instead.
     let fetch_url = url.split('#').next().unwrap_or(url);
-    let mut request = state.http_client.get(fetch_url);
 
-    for (name, value) in plugin_request_headers(state, url) {
-        if headers.keys().any(|k| k.eq_ignore_ascii_case(&name)) {
-            continue;
-        }
+    let mut request_headers = reqwest::header::HeaderMap::new();
+    let client_headers = headers.iter().map(|(k, v)| (k.clone(), v.clone()));
+    for (name, value) in plugin_request_headers(state, url).into_iter().chain(client_headers) {
+        // Inserted after the plugins' entries, the client's values replace them.
         if let (Ok(n), Ok(v)) = (
             reqwest::header::HeaderName::try_from(name.as_str()),
             reqwest::header::HeaderValue::try_from(value.as_str()),
         ) {
-            request = request.header(n, v);
+            request_headers.insert(n, v);
         }
     }
-    for (name, value) in headers {
-        if let (Ok(n), Ok(v)) = (
-            reqwest::header::HeaderName::try_from(name.as_str()),
-            reqwest::header::HeaderValue::try_from(value.as_str()),
-        ) {
-            request = request.header(n, v);
-        }
-    }
-    let resp = match request.send().await {
-        Ok(r) => r,
+
+    let _slot = state.host_limiter.acquire(fetch_url).await;
+    let fetched = fetch_with_retry(
+        || state.http_client.get(fetch_url).headers(request_headers.clone()),
+        |reason, delay| {
+            state.emit(ServerEvent::Info(format!(
+                "Retrying {url} in {} ms after {reason}",
+                delay.as_millis()
+            )));
+        },
+    )
+    .await;
+    let fetched = match fetched {
+        Ok(f) => f,
         Err(e) => {
             let msg = format!("Download failed for {url}: {e}");
             state.emit(ServerEvent::Error(msg.clone()));
@@ -489,7 +497,7 @@ async fn download_image(
         }
     };
 
-    let status = resp.status();
+    let status = fetched.status;
     if !status.is_success() {
         let hint = if matches!(status.as_u16(), 403 | 429 | 503) {
             " (likely Cloudflare / anti-bot block)"
@@ -501,23 +509,16 @@ async fn download_image(
         return Err(msg);
     }
 
-    let resp_headers: HashMap<String, String> = resp
-        .headers()
+    let resp_headers: HashMap<String, String> = fetched
+        .headers
         .iter()
         .filter_map(|(k, v)| v.to_str().ok().map(|v| (k.as_str().to_string(), v.to_string())))
         .collect();
 
-    match resp.bytes().await {
-        Ok(b) => Ok(DownloadedImage {
-            bytes: b.to_vec(),
-            headers: resp_headers,
-        }),
-        Err(e) => {
-            let msg = format!("Download read failed for {url}: {e}");
-            state.emit(ServerEvent::Error(msg.clone()));
-            Err(msg)
-        }
-    }
+    Ok(DownloadedImage {
+        bytes: fetched.body.to_vec(),
+        headers: resp_headers,
+    })
 }
 
 /// Headers the enabled plugins want added for this URL's host.

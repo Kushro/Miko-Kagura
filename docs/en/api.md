@@ -43,7 +43,11 @@ Invoke-WebRequest -Method Post -Uri 'http://192.168.1.100:8282/upscale/url' -Con
 ```
 
 Replace the example URL with an accessible image. Client-provided headers take
-precedence over plugin defaults. Preserve source URL fragments for the
+precedence over plugin defaults. The server downloads at most four images at a
+time from each host and retries timeouts, connection errors and HTTP 408/429/5xx
+up to two more times, waiting as `Retry-After` asks (up to 10 seconds) or with
+growing randomized delays. Cloudflare challenges and other blocks fail at once,
+since asking again won't clear them. Preserve source URL fragments for the
 [repair plugins](configuration.md#source-plugins).
 
 ## Read batch results

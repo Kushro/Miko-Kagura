@@ -2967,6 +2967,7 @@ dependencies = [
  "axum",
  "base64",
  "dioxus",
+ "fastrand",
  "image",
  "imageproc",
  "oxipng",
