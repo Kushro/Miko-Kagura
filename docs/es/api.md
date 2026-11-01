@@ -19,8 +19,15 @@ una red de confianza: la API HTTP no tiene autenticación.
 | POST | `/upscale/batch/url` | JSON: `urls`, mapa compartido `headers` opcional | Resultados JSON por imagen |
 
 `/status` incluye `model`, `model_display_name`, `scale`, `noise`, `gpu`,
-`uptime_seconds`, `requests_processed`, `bytes_processed`, `binary_dir` y
-`binaries_ready`. Los campos del modelo pueden ser null antes de cargarlo.
+`uptime_seconds`, `requests_processed`, `bytes_processed`, `binary_dir`,
+`binaries_ready` e `input_formats`. Los campos del modelo pueden ser null antes
+de cargarlo.
+
+`input_formats` enumera los formatos de imagen que aceptan como entrada todos los
+endpoints de escalado: `png`, `jpeg`, `webp`, `gif`, `bmp`, `tiff` y `avif`. Los
+clientes pueden enviar las páginas en esos formatos tal cual y convertir antes
+cualquier otro (HEIF, JPEG XL). Los servidores más antiguos no incluyen el campo
+y no aceptan AVIF.
 
 Las imágenes se devuelven en PNG por defecto, o en WebP con pérdida cuando el
 [formato de salida](configuration.md#formato-de-salida) es WebP. Revisa

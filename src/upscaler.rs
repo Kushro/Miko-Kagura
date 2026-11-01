@@ -341,7 +341,7 @@ impl Upscaler {
                         return std::fs::write(in_path(i), bytes)
                             .map_err(|e| format!("Could not write input image: {e}"));
                     }
-                    let img = image::load_from_memory(bytes)
+                    let img = decode_image(bytes)
                         .map_err(|e| format!("Could not decode input image: {e}"))?;
                     to_rgb_or_rgba(img)
                         .save_with_format(in_path(i), ImageFormat::Png)
@@ -630,9 +630,24 @@ fn to_rgb_or_rgba(img: DynamicImage) -> DynamicImage {
     }
 }
 
+/// Input formats the server can decode, as reported by `GET /status`.
+pub const INPUT_FORMATS: &[&str] = &["png", "jpeg", "webp", "gif", "bmp", "tiff", "avif"];
+
+/// Decode an input image in any of [`INPUT_FORMATS`]. AVIF goes through
+/// [`crate::avif`], since the `image` crate can only encode it.
+pub fn decode_image(data: &[u8]) -> Result<DynamicImage, String> {
+    if crate::avif::is_avif(data) {
+        return crate::avif::decode(data);
+    }
+    image::load_from_memory(data).map_err(|e| e.to_string())
+}
+
 /// Width and height read from the image header, without decoding pixels.
 /// `(0, 0)` if the bytes aren't a recognised image.
 pub fn image_dimensions(data: &[u8]) -> (u32, u32) {
+    if crate::avif::is_avif(data) {
+        return crate::avif::dimensions(data).unwrap_or((0, 0));
+    }
     image::ImageReader::new(Cursor::new(data))
         .with_guessed_format()
         .ok()
@@ -662,7 +677,7 @@ pub fn normalize_png_bytes(data: Vec<u8>) -> Vec<u8> {
     if is_plain_png(&data) {
         return data;
     }
-    match image::load_from_memory(&data) {
+    match decode_image(&data) {
         Ok(img) => {
             let normalized = to_rgb_or_rgba(img);
             let mut buf = Cursor::new(Vec::new());
@@ -700,7 +715,7 @@ pub fn enforce_webp_limit(data: &[u8], limit: u32) -> Option<(Vec<u8>, Resize)> 
     if w > 0 && w.max(h) <= limit {
         return None;
     }
-    let img = image::load_from_memory(data).ok()?;
+    let img = decode_image(data).ok()?;
     let (resized, dims) = fit_within(&img, limit)?;
     let clean = to_rgb_or_rgba(resized);
     let mut buf = Cursor::new(Vec::new());
@@ -737,7 +752,7 @@ pub fn encode_webp(
     quality: u8,
 ) -> Result<(Vec<u8>, Option<Resize>), String> {
     let limit = limit.clamp(1, WEBP_MAX_DIMENSION);
-    let img = image::load_from_memory(data).map_err(|e| format!("Could not decode image: {e}"))?;
+    let img = decode_image(data).map_err(|e| format!("Could not decode image: {e}"))?;
     let (img, resized) = match fit_within(&img, limit) {
         Some((img, dims)) => (img, Some(dims)),
         None => (img, None),

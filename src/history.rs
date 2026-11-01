@@ -498,6 +498,14 @@ fn extension_for(bytes: &[u8]) -> &'static str {
 /// limits are lifted too: upscaled pages are routinely tall enough to exceed the
 /// crate's default 512 MiB decode budget.
 fn open_sniffed(path: &Path) -> Option<image::DynamicImage> {
+    if path.extension().is_some_and(|ext| ext == "avif") {
+        let decoded = std::fs::read(path)
+            .map_err(|e| e.to_string())
+            .and_then(|bytes| crate::upscaler::decode_image(&bytes));
+        return decoded
+            .inspect_err(|e| eprintln!("[history] cannot decode {}: {e}", path.display()))
+            .ok();
+    }
     let mut reader = image::ImageReader::open(path).ok()?.with_guessed_format().ok()?;
     reader.no_limits();
     match reader.decode() {
