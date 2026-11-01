@@ -7,6 +7,7 @@
 //! range, the common matrix coefficients, and an optional alpha item.
 //! Rotation, mirroring and cropping properties are ignored.
 
+use std::borrow::Cow;
 use std::mem::MaybeUninit;
 use std::ptr::NonNull;
 
@@ -37,16 +38,34 @@ pub fn is_avif(data: &[u8]) -> bool {
         .any(|brand| brand == b"avif" || brand == b"avis")
 }
 
+/// avif-parse only accepts the `avif` major brand, but encoders also write
+/// AVIF stills under a generic one (`mif1`, `miaf`) with `avif` listed as
+/// compatible, and `avis` sequences carry a still primary item too.
+/// [`is_avif`] has already accepted those, so present them to the parser
+/// with the major brand it expects.
+fn with_avif_major_brand(data: &[u8]) -> Cow<'_, [u8]> {
+    if data.len() < 12 || &data[4..8] != b"ftyp" || &data[8..12] == b"avif" {
+        return Cow::Borrowed(data);
+    }
+    let mut owned = data.to_vec();
+    owned[8..12].copy_from_slice(b"avif");
+    Cow::Owned(owned)
+}
+
+fn read_avif(data: &[u8]) -> avif_parse::Result<avif_parse::AvifData> {
+    avif_parse::read_avif(&mut &with_avif_major_brand(data)[..])
+}
+
 /// Width and height from the AV1 sequence header, without decoding pixels.
 pub fn dimensions(data: &[u8]) -> Option<(u32, u32)> {
-    let avif = avif_parse::read_avif(&mut &data[..]).ok()?;
+    let avif = read_avif(data).ok()?;
     let meta = avif.primary_item_metadata().ok()?;
     Some((meta.max_frame_width.get(), meta.max_frame_height.get()))
 }
 
 /// Decode an AVIF still image to 8-bit RGB, or RGBA when it has an alpha item.
 pub fn decode(data: &[u8]) -> Result<DynamicImage, String> {
-    let avif = avif_parse::read_avif(&mut &data[..]).map_err(|e| format!("Invalid AVIF: {e:?}"))?;
+    let avif = read_avif(data).map_err(|e| format!("Invalid AVIF: {e:?}"))?;
     let color = Picture::decode(&avif.primary_item)?;
     let (w, h) = color.size();
     let rgb = color.to_rgb();
@@ -317,6 +336,29 @@ mod tests {
             .sum::<f64>()
             / (64.0 * 48.0 * 3.0);
         assert!(err < 6.0, "mean abs error {err}");
+    }
+
+    /// AVIF stills under a generic major brand, with `avif` only compatible.
+    #[test]
+    fn decodes_a_generic_major_brand() {
+        let src = RgbImage::from_fn(16, 16, |x, y| {
+            image::Rgb([(x * 16) as u8, (y * 16) as u8, 64])
+        });
+        let mut buf = std::io::Cursor::new(Vec::new());
+        DynamicImage::ImageRgb8(src)
+            .write_to(&mut buf, image::ImageFormat::Avif)
+            .unwrap();
+        let mut bytes = buf.into_inner();
+        // The encoder writes `avif` as major and `mif1 miaf` as compatible
+        // brands; list `avif` among the compatible ones instead.
+        assert_eq!(&bytes[4..24], b"ftypavif\0\0\0\0mif1miaf");
+        bytes[16..20].copy_from_slice(b"avif");
+        for major in [b"mif1", b"miaf"] {
+            bytes[8..12].copy_from_slice(major);
+            assert!(is_avif(&bytes));
+            assert_eq!(dimensions(&bytes), Some((16, 16)));
+            assert_eq!(decode(&bytes).unwrap().width(), 16);
+        }
     }
 
     #[test]

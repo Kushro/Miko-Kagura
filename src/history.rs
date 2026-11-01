@@ -484,6 +484,10 @@ pub fn build_comparison(record: &RequestRecord) -> Option<PathBuf> {
 
 /// File extension matching the image's actual format; `png` if unrecognised.
 fn extension_for(bytes: &[u8]) -> &'static str {
+    // `guess_format` only knows AVIF under the `avif` major brand.
+    if crate::avif::is_avif(bytes) {
+        return "avif";
+    }
     image::guess_format(bytes)
         .ok()
         .and_then(|f| f.extensions_str().first().copied())
