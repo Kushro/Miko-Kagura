@@ -19,8 +19,14 @@ the HTTP API has no authentication.
 | POST | `/upscale/batch/url` | JSON: `urls`, optional shared `headers` map | JSON batch results |
 
 `/status` includes `model`, `model_display_name`, `scale`, `noise`, `gpu`,
-`uptime_seconds`, `requests_processed`, `bytes_processed`, `binary_dir`, and
-`binaries_ready`. Model-related fields can be null before a model is loaded.
+`uptime_seconds`, `requests_processed`, `bytes_processed`, `binary_dir`,
+`binaries_ready`, and `input_formats`. Model-related fields can be null before a
+model is loaded.
+
+`input_formats` lists the image formats every upscale endpoint accepts as input:
+`png`, `jpeg`, `webp`, `gif`, `bmp`, `tiff` and `avif`. Clients can send pages in
+these formats as they are, and convert anything else (HEIF, JPEG XL) first.
+Older servers omit the field and do not accept AVIF.
 
 Images come back as PNG by default, or as lossy WebP when the
 [output format](configuration.md#output-format) is set to WebP. Check

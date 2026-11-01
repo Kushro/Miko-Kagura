@@ -28,6 +28,17 @@ BSD 3-Clause license with an additional patent grant; the texts are in
 [`LICENSES/libwebp-BSD-3-Clause.txt`](LICENSES/libwebp-BSD-3-Clause.txt) and
 [`LICENSES/libwebp-PATENTS.txt`](LICENSES/libwebp-PATENTS.txt).
 
+## AVIF decoding
+
+AVIF inputs are decoded with [rav1d](https://github.com/memorysafety/rav1d)
+1.1.0, a Rust port of the dav1d AV1 decoder. Copyright © 2018-2019, VideoLAN and
+dav1d authors; © 2023-2024, VideoLAN, dav1d authors, and Internet Security
+Research Group. It is distributed under the BSD 2-Clause license; the text is in
+[`LICENSES/rav1d-BSD-2-Clause.txt`](LICENSES/rav1d-BSD-2-Clause.txt). The AVIF
+container is read with [avif-parse](https://github.com/kornelski/avif-parse),
+used unmodified under the Mozilla Public License 2.0; its source is available
+from that repository and from crates.io.
+
 ## Distributed executable packages and model weights
 
 The `binaries/` directory is not tracked in Git. **Full release packages include

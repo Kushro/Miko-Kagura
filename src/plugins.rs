@@ -361,7 +361,7 @@ fn anti_hotlink_headers(url: &str) -> Vec<(String, String)> {
 // ── Shared image helpers ──────────────────────────────────────────────
 
 fn decode(bytes: &[u8]) -> Result<RgbaImage, String> {
-    image::load_from_memory(bytes)
+    crate::upscaler::decode_image(bytes)
         .map_err(|e| format!("could not decode image: {e}"))
         .map(DynamicImage::into_rgba8)
 }

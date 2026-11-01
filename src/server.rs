@@ -30,7 +30,7 @@ use crate::gpu_queue::GpuQueue;
 use crate::history::{RequestHistory, RequestRecord, RequestSource};
 use crate::upscaler::{
     encode_webp, enforce_webp_limit, image_dimensions, normalize_png_bytes, Upscaler,
-    WEBP_MAX_DIMENSION,
+    INPUT_FORMATS, WEBP_MAX_DIMENSION,
 };
 
 /// Server-side counters.
@@ -140,6 +140,8 @@ struct StatusResponse {
     bytes_processed: u64,
     binary_dir: String,
     binaries_ready: bool,
+    /// Formats `/upscale*` accepts as input, so clients know what to send as-is.
+    input_formats: &'static [&'static str],
 }
 
 #[derive(Serialize)]
@@ -952,6 +954,7 @@ async fn status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         bytes_processed: stats.bytes_processed,
         binary_dir,
         binaries_ready,
+        input_formats: INPUT_FORMATS,
     })
 }
 

@@ -16,6 +16,7 @@ use dioxus::desktop::{Config, WindowBuilder};
 use dioxus::prelude::*;
 use tokio::sync::broadcast;
 
+mod avif;
 mod cache;
 mod clamp;
 mod config;

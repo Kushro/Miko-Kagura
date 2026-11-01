@@ -38,6 +38,9 @@ fastrand = "2"
 
 # Native folder picker for the Settings → Binary Directory control
 rfd = "0.17"
+rav1d = { version = "1.1.0", default-features = false, features = ["bitdepth_8", "bitdepth_16"] }
+avif-parse = "2.1.0"
+libc = "0.2.191"
 
 [profile.dev.package."*"]
 opt-level = 3
