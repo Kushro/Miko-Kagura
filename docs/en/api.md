@@ -78,3 +78,20 @@ runs the engine one job at a time and processes images waiting with the same
 settings in a single engine run, so concurrent requests are cheaper than
 sequential ones. `X-Process-Time-Ms` and `time_ms` report the engine time
 attributed to each image, excluding time spent waiting in the queue.
+
+### Stream batch results
+
+Send `Accept: application/x-ndjson` to either batch route to receive each result
+as soon as it is ready instead of waiting for the whole batch. The response is
+newline-delimited JSON: a first line with `batch_id` and `count`, then one
+result object per line, in completion order rather than request order. Match
+results to requests by `index`. Closing the connection cancels the images that
+haven't finished. Without that header, batches answer with the single JSON
+document above.
+
+```text
+{"batch_id":1,"count":3}
+{"index":1,"success":true,"image":"…","width":1800,"height":2600,"time_ms":410}
+{"index":0,"success":true,"image":"…","width":1800,"height":2600,"time_ms":410}
+{"index":2,"success":false,"error":"Example processing error"}
+```

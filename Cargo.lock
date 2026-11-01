@@ -2978,6 +2978,7 @@ dependencies = [
  "base64",
  "dioxus",
  "fastrand",
+ "futures-util",
  "image",
  "imageproc",
  "oxipng",

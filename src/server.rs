@@ -14,7 +14,7 @@ use std::time::Instant;
 use axum::{
     body::{Body, Bytes},
     extract::{DefaultBodyLimit, State},
-    http::{header, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
@@ -732,8 +732,9 @@ async fn upscale_url(
 /// `POST /upscale/batch` — many base64 images in, JSON of per-item results out.
 async fn upscale_batch(
     State(state): State<Arc<AppState>>,
+    http_headers: HeaderMap,
     Json(req): Json<BatchImagesRequest>,
-) -> Result<Json<BatchResponse>, (StatusCode, String)> {
+) -> Result<Response, (StatusCode, String)> {
     if req.images.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "Empty batch".to_string()));
     }
@@ -776,8 +777,84 @@ async fn upscale_batch(
             }
         });
     }
-    let results = collect_batch(set, n).await;
-    Ok(Json(BatchResponse { batch_id, results }))
+    Ok(batch_response(set, n, batch_id, wants_ndjson(&http_headers)).await)
+}
+
+/// Whether the client asked for batch results as they finish
+/// (`Accept: application/x-ndjson`).
+fn wants_ndjson(headers: &HeaderMap) -> bool {
+    headers
+        .get_all(header::ACCEPT)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .any(|v| v.contains("application/x-ndjson"))
+}
+
+/// Answer a batch: one JSON document once every item is done, or, for NDJSON,
+/// a line per item as soon as it's ready so the reader can show page one
+/// while the rest are still processing.
+async fn batch_response(
+    set: tokio::task::JoinSet<BatchItem>,
+    n: usize,
+    batch_id: u64,
+    ndjson: bool,
+) -> Response {
+    if !ndjson {
+        let results = collect_batch(set, n).await;
+        return Json(BatchResponse { batch_id, results }).into_response();
+    }
+    let (tx, rx) = tokio::sync::mpsc::channel::<Bytes>(4);
+    tokio::spawn(stream_batch(set, n, batch_id, tx));
+    let lines = futures_util::stream::unfold(rx, |mut rx| async move {
+        rx.recv()
+            .await
+            .map(|line| (Ok::<_, std::convert::Infallible>(line), rx))
+    });
+    Response::builder()
+        .header(header::CONTENT_TYPE, "application/x-ndjson")
+        .body(Body::from_stream(lines))
+        .unwrap()
+}
+
+/// Write a streamed batch: a first line with `batch_id` and `count`, then one
+/// result per line in completion order. If the client goes away, the
+/// remaining items are cancelled (dropping `set` aborts them) rather than
+/// processed for nobody.
+async fn stream_batch(
+    mut set: tokio::task::JoinSet<BatchItem>,
+    n: usize,
+    batch_id: u64,
+    tx: tokio::sync::mpsc::Sender<Bytes>,
+) {
+    let first = serde_json::json!({ "batch_id": batch_id, "count": n });
+    if send_line(&tx, &first).await.is_err() {
+        return;
+    }
+    let mut sent = vec![false; n];
+    loop {
+        // Watch for the client leaving while waiting, not only when the next
+        // line is ready, or a slow item would keep the batch alive.
+        let joined = tokio::select! {
+            joined = set.join_next() => joined,
+            _ = tx.closed() => return,
+        };
+        let Some(joined) = joined else { break };
+        if let Ok(item) = joined {
+            sent[item.index] = true;
+            if send_line(&tx, &item).await.is_err() {
+                return;
+            }
+        }
+    }
+    for i in (0..n).filter(|&i| !sent[i]) {
+        let _ = send_line(&tx, &BatchItem::err(i, "batch task dropped".to_string())).await;
+    }
+}
+
+async fn send_line(tx: &tokio::sync::mpsc::Sender<Bytes>, value: &impl Serialize) -> Result<(), ()> {
+    let mut line = serde_json::to_vec(value).map_err(|_| ())?;
+    line.push(b'\n');
+    tx.send(Bytes::from(line)).await.map_err(|_| ())
 }
 
 /// Gather a batch's per-item tasks back into request order.
@@ -799,8 +876,9 @@ async fn collect_batch(mut set: tokio::task::JoinSet<BatchItem>, n: usize) -> Ve
 /// `POST /upscale/batch/url` — many URLs in; downloaded in parallel then upscaled.
 async fn upscale_batch_url(
     State(state): State<Arc<AppState>>,
+    http_headers: HeaderMap,
     Json(req): Json<BatchUrlsRequest>,
-) -> Result<Json<BatchResponse>, (StatusCode, String)> {
+) -> Result<Response, (StatusCode, String)> {
     if req.urls.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "Empty batch".to_string()));
     }
@@ -839,8 +917,7 @@ async fn upscale_batch_url(
             }
         });
     }
-    let results = collect_batch(set, n).await;
-    Ok(Json(BatchResponse { batch_id, results }))
+    Ok(batch_response(set, n, batch_id, wants_ndjson(&http_headers)).await)
 }
 
 async fn status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -952,4 +1029,117 @@ pub fn spawn_server(state: Arc<AppState>, host: String, port: u16, max_size_mb: 
         };
         rt.block_on(serve(state, host, port, max_size_mb));
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures_util::StreamExt;
+    use std::sync::atomic::AtomicBool;
+    use std::time::Duration;
+    use tokio::task::JoinSet;
+
+    /// A batch whose item `i` finishes after `delays[i]` ms. Items fail with
+    /// their own index as the message, which is enough to tell them apart.
+    fn batch(delays: &[u64]) -> JoinSet<BatchItem> {
+        let mut set = JoinSet::new();
+        for (i, &ms) in delays.iter().enumerate() {
+            set.spawn(async move {
+                tokio::time::sleep(Duration::from_millis(ms)).await;
+                BatchItem::err(i, format!("item {i}"))
+            });
+        }
+        set
+    }
+
+    fn content_type(r: &Response) -> &str {
+        r.headers()[header::CONTENT_TYPE].to_str().unwrap()
+    }
+
+    async fn lines(r: Response) -> Vec<serde_json::Value> {
+        let body = axum::body::to_bytes(r.into_body(), usize::MAX).await.unwrap();
+        body.split(|b| *b == b'\n')
+            .filter(|l| !l.is_empty())
+            .map(|l| serde_json::from_slice(l).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn only_an_ndjson_accept_header_asks_for_streaming() {
+        let mut h = HeaderMap::new();
+        assert!(!wants_ndjson(&h));
+        h.insert(header::ACCEPT, "application/json".parse().unwrap());
+        assert!(!wants_ndjson(&h));
+        h.append(header::ACCEPT, "application/x-ndjson".parse().unwrap());
+        assert!(wants_ndjson(&h));
+    }
+
+    #[tokio::test]
+    async fn a_plain_batch_answers_once_in_request_order() {
+        let r = batch_response(batch(&[60, 0, 30]), 3, 7, false).await;
+        assert_eq!(content_type(&r), "application/json");
+        let doc = &lines(r).await[0];
+        assert_eq!(doc["batch_id"], 7);
+        let order: Vec<_> = doc["results"].as_array().unwrap().iter().map(|r| &r["error"]).collect();
+        assert_eq!(order, ["item 0", "item 1", "item 2"]);
+    }
+
+    #[tokio::test]
+    async fn a_streamed_batch_sends_each_item_as_it_finishes() {
+        let r = batch_response(batch(&[60, 0, 30]), 3, 7, true).await;
+        assert_eq!(content_type(&r), "application/x-ndjson");
+        let lines = lines(r).await;
+        assert_eq!(lines[0], serde_json::json!({ "batch_id": 7, "count": 3 }));
+        let order: Vec<_> = lines[1..].iter().map(|l| l["index"].as_u64().unwrap()).collect();
+        assert_eq!(order, [1, 2, 0]);
+    }
+
+    #[tokio::test]
+    async fn an_item_whose_task_died_is_still_reported() {
+        for ndjson in [false, true] {
+            let mut set = batch(&[0]);
+            set.spawn(async { panic!("worker died") });
+            let lines = lines(batch_response(set, 2, 1, ndjson).await).await;
+            let items: Vec<_> = if ndjson {
+                lines[1..].to_vec()
+            } else {
+                lines[0]["results"].as_array().unwrap().clone()
+            };
+            let dead = items.iter().find(|i| i["index"] == 1).unwrap();
+            assert_eq!(dead["error"], "batch task dropped");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_client_leaving_mid_stream_cancels_the_rest() {
+        struct SetOnDrop(Arc<AtomicBool>);
+        impl Drop for SetOnDrop {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::SeqCst);
+            }
+        }
+
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let mut set = batch(&[0]);
+        let flag = cancelled.clone();
+        set.spawn(async move {
+            let _guard = SetOnDrop(flag);
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            BatchItem::err(1, "never".to_string())
+        });
+
+        let r = batch_response(set, 2, 1, true).await;
+        let mut body = r.into_body().into_data_stream();
+        body.next().await.unwrap().unwrap(); // header line
+        body.next().await.unwrap().unwrap(); // item 0
+        drop(body);
+
+        for _ in 0..50 {
+            if cancelled.load(Ordering::SeqCst) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("the unfinished item kept running after the client left");
+    }
 }
