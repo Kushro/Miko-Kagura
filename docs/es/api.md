@@ -69,3 +69,20 @@ servidor ejecuta el motor de a un trabajo por vez y procesa en una sola
 ejecución las imágenes en espera con los mismos ajustes, así que las solicitudes
 concurrentes cuestan menos que las secuenciales. `X-Process-Time-Ms` y `time_ms`
 indican el tiempo de motor atribuido a cada imagen, sin contar la espera en cola.
+
+### Recibir lotes en streaming
+
+Envía `Accept: application/x-ndjson` a cualquiera de las rutas de lotes para
+recibir cada resultado en cuanto está listo, sin esperar al lote completo. La
+respuesta es JSON delimitado por saltos de línea: una primera línea con
+`batch_id` y `count`, y luego un objeto de resultado por línea, en orden de
+finalización y no de solicitud. Asocia cada resultado con su solicitud por
+`index`. Cerrar la conexión cancela las imágenes que aún no terminaron. Sin esa
+cabecera, los lotes responden con el documento JSON único de arriba.
+
+```text
+{"batch_id":1,"count":3}
+{"index":1,"success":true,"image":"…","width":1800,"height":2600,"time_ms":410}
+{"index":0,"success":true,"image":"…","width":1800,"height":2600,"time_ms":410}
+{"index":2,"success":false,"error":"Example processing error"}
+```
