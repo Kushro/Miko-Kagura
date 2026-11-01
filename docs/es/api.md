@@ -13,14 +13,18 @@ una red de confianza: la API HTTP no tiene autenticación.
 | GET | `/health` | Ninguna | `status`, `upscaler_ready` |
 | GET | `/status` | Ninguna | Modelo, escala, ruido, GPU, contadores y ruta de motores |
 | POST | `/model` | JSON: `model`, opcionales `scale` (2), `noise` (0) | Modelo seleccionado y `loaded` |
-| POST | `/upscale` | Bytes de la imagen | Bytes PNG |
-| POST | `/upscale/url` | JSON: `url`, mapa `headers` opcional | Bytes PNG |
+| POST | `/upscale` | Bytes de la imagen | Bytes PNG o WebP |
+| POST | `/upscale/url` | JSON: `url`, mapa `headers` opcional | Bytes PNG o WebP |
 | POST | `/upscale/batch` | JSON: arreglo `images` de imágenes base64 | Resultados JSON por imagen |
 | POST | `/upscale/batch/url` | JSON: `urls`, mapa compartido `headers` opcional | Resultados JSON por imagen |
 
 `/status` incluye `model`, `model_display_name`, `scale`, `noise`, `gpu`,
 `uptime_seconds`, `requests_processed`, `bytes_processed`, `binary_dir` y
 `binaries_ready`. Los campos del modelo pueden ser null antes de cargarlo.
+
+Las imágenes se devuelven en PNG por defecto, o en WebP con pérdida cuando el
+[formato de salida](configuration.md#formato-de-salida) es WebP. Revisa
+`Content-Type` (`image/png` o `image/webp`) o decodifica por contenido.
 
 ## Enviar una imagen
 
@@ -49,8 +53,9 @@ los [plugins de reparación](configuration.md#plugins-de-fuentes).
 ## Leer resultados por lotes
 
 La respuesta contiene `batch_id` y un arreglo `results`. Cada resultado incluye
-`index` y `success`. Un resultado correcto incluye `image` (PNG en base64),
-`width`, `height` y `time_ms`; uno fallido incluye `error`. Revisa cada entrada
+`index` y `success`. Un resultado correcto incluye `image` en base64, su
+`format` (`png` o `webp`), `width`, `height` y `time_ms`; uno fallido incluye
+`error`. Revisa cada entrada
 en lugar de asumir que todo el lote fue correcto.
 
 ```json

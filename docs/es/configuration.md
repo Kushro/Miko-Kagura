@@ -7,7 +7,8 @@ Usa el panel para cambiar el procesamiento sin reiniciar el servidor.
 ## Controles del panel
 
 El panel izquierdo permite seleccionar modelo, escala, reducción de ruido, GPU,
-compresión, normalización PNG, dimensión máxima y **Binary Directory**.
+compresión, formato de salida, normalización PNG, dimensión máxima y
+**Binary Directory**.
 
 El panel derecho contiene las pestañas **Requests**, **Plugins**, **Settings**,
 **Errors** y **Storage**. Selecciona una solicitud para comparar las imágenes
@@ -42,6 +43,16 @@ el valor directamente; **Device** lo calcula con el tamaño de pantalla, la dens
 de píxeles y el margen de zoom. Un margen de `100%` ajusta a la pantalla; `200%`
 conserva detalle para un zoom de 2×.
 
+## Formato de salida
+
+**PNG** (predeterminado) no tiene pérdida. **WebP** tiene pérdida y pesa varias
+veces menos: una página de manga escalada a 1800×2600 baja de unos 10 MB a unos
+1,4 MB con calidad `90`, así que las páginas llegan antes por Wi-Fi y ocupan
+menos en la caché del lector. Elige una calidad entre `75` y `95`; `90` mantiene
+limpio el entintado. La compresión y la normalización PNG no se aplican a WebP,
+y la salida WebP siempre se limita a `16383` píxeles por dimensión. Miko
+decodifica ambos formatos.
+
 ## Preferencias guardadas y CLI
 
 Los cambios se guardan en `%APPDATA%\Miko-Kagura\settings.json`.
@@ -61,6 +72,7 @@ ejecutable. Las opciones CLI reemplazan las preferencias para esa ejecución.
 | `--gpu-id` | Índice de GPU; `-1` selecciona automáticamente |
 | `--max-size` | Límite del cuerpo de una solicitud en MiB; `20` |
 | `--compress` / `-C`, `--compress-level` | Activar oxipng; nivel `0`–`6`, predeterminado `2` |
+| `--webp`, `--webp-quality` | Enviar WebP con pérdida; calidad `1`–`100`, predeterminada `90` |
 | `--no-normalize` | Desactivar normalización PNG |
 | `--no-webp-compat` | Desactivar límite de dimensión |
 | `--webp-max-dimension` | Dimensión máxima de salida; `16383` |

@@ -207,8 +207,9 @@ impl RequestHistory {
         let (w_out, h_out) = image_dimensions(output_bytes);
 
         let dir = self.dir();
-        let in_path = dir.join(format!("{rid:06}_before.png"));
-        let out_path = dir.join(format!("{rid:06}_after.png"));
+        // Named after the actual content, so the system viewer opens them.
+        let in_path = dir.join(format!("{rid:06}_before.{}", extension_for(input_bytes)));
+        let out_path = dir.join(format!("{rid:06}_after.{}", extension_for(output_bytes)));
         let _ = std::fs::write(&in_path, input_bytes);
         let _ = std::fs::write(&out_path, output_bytes);
 
@@ -481,11 +482,19 @@ pub fn build_comparison(record: &RequestRecord) -> Option<PathBuf> {
     Some(out_path)
 }
 
+/// File extension matching the image's actual format; `png` if unrecognised.
+fn extension_for(bytes: &[u8]) -> &'static str {
+    image::guess_format(bytes)
+        .ok()
+        .and_then(|f| f.extensions_str().first().copied())
+        .unwrap_or("png")
+}
+
 /// Decode an image by sniffing its content rather than trusting the extension.
 ///
-/// History files are always named `*.png`, but `input_path` holds the client's
-/// original bytes verbatim (often WebP or JPEG from manga readers), and
-/// `image::open` would pick the PNG decoder from the name and fail. Allocation
+/// History files are named after their sniffed format, but an unrecognised
+/// one falls back to `.png`, and `image::open` would pick the decoder from
+/// the name and fail. Allocation
 /// limits are lifted too: upscaled pages are routinely tall enough to exceed the
 /// crate's default 512 MiB decode budget.
 fn open_sniffed(path: &Path) -> Option<image::DynamicImage> {
@@ -669,7 +678,7 @@ mod tests {
     }
 
     #[test]
-    fn build_comparison_decodes_non_png_bytes_behind_png_extension() {
+    fn files_are_named_by_content_and_compared_across_formats() {
         let fx = Fixture::new();
         let mut h = RequestHistory::new(50);
         h.set_dir_for_tests(fx.base.join("session"));
@@ -698,7 +707,8 @@ mod tests {
             None,
             None,
         );
-        assert!(rec.input_path.extension().is_some_and(|e| e == "png"));
+        assert!(rec.input_path.extension().is_some_and(|e| e == "webp"));
+        assert!(rec.output_path.extension().is_some_and(|e| e == "png"));
 
         let out = build_comparison(&rec).expect("comparison built from sniffed formats");
         let composed = image::open(&out).expect("comparison is a readable PNG");
